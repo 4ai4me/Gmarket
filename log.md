@@ -128,4 +128,27 @@
 - 확인하지 못한 것 / 사용자 확인 필요: 사용자가 보유한 실제 다년도 가락시장 OZViewer `.xls` 파일 누적 업로드 테스트 및 `4ai4me/Gmarket` 원격 GitHub 저장소 푸시
 - 남은 이슈: 없음
 
+## [v0.4.1] 2026-11-20 — GitHub Pages(`4ai4me.github.io/Gmarket`) 배포 워크플로 실패 및 백지 화면 원인 해결
 
+### 시작 전
+- Tier: 1 (GitHub Actions 배포 워크플로 버그 수정 및 버전/문서 동기화)
+- 요청 내용: `https://4ai4me.github.io/Gmarket/` 백지 화면 및 GitHub Actions `Deploy to GitHub Pages #2` 실패(Commit `9322d9e`) 해결.
+- 영향 범위 판단: `.github/workflows/deploy-pages.yml`, `VERSION`, `src/App.tsx`(정적 배포용 기본 버전 문자열), `README.md`, `log.md`. 앱 비즈니스 로직·데이터 모델·UI 동작에는 영향 없음.
+- 회귀 위험 검토: 기존 7개 탭, 엑셀 파서, 1년 ROI 계산, 지도 대시보드, 단위 테스트에 회귀가 없어야 하며, 정적 빌드(`dist/`)가 `/Gmarket/` 하위 경로에서도 자산 404 및 콘솔 오류 없이 정상 렌더링되어야 함.
+- 검증 계획:
+  1. `npm install --legacy-peer-deps --package-lock-only --dry-run` 정상 종료(0) 확인
+  2. 단위 테스트 17건 (`npx tsx --test src/utils/analytics.test.ts`), `tsc --noEmit`, `vite build` 통과
+  3. 빌드된 `dist/`를 실제 `/Gmarket/` 하위 경로(`http://127.0.0.1:4179/Gmarket/`)로 정적 서빙하여 Playwright 실브라우저 렌더링·자산 로드·콘솔 오류 0건 확인
+
+### 완료 후
+- 변경 파일: `.github/workflows/deploy-pages.yml`, `VERSION`, `src/App.tsx`, `README.md`, `log.md`
+- 원인 규명 (실측 확인):
+  1. `Deploy to GitHub Pages #2` (`run 44740456995`) Step 3 `Setup Node.js` 실패: 저장소에 `bun.lock`만 있고 `package-lock.json`이 없는데 워크플로에 `cache: 'npm'` 및 `npm ci`가 지정되어 즉시 중단됨.
+  2. 숨겨진 2차 설치 오류: 일반 `npm install` 실행 시 `vite@8.3.8`의 optional peer(`esbuild@^0.27||^0.28`)와 `package.json`의 `esbuild@^0.25.0` 간 `ERESOLVE` 충돌 발생 → `--legacy-peer-deps` 플래그로 해결 검증.
+  3. 백지 화면 직접 원인: GitHub Actions API에서 `dynamic/pages/pages-build-deployment`가 실행되고 있으며, `https://4ai4me.github.io/Gmarket/`가 빌드된 `dist/index.html`이 아닌 원본 루트 `index.html`(`<script type="module" src="/src/main.tsx">`)을 서빙 중 → GitHub 저장소 `Settings → Pages → Source`가 아직 `Deploy from a branch`로 설정되어 있음.
+- 완료 기준(DoD) 확인 결과:
+  - 단위 테스트 17/17 통과, `tsc --noEmit` 0오류, `vite build` 성공
+  - 로컬 `/Gmarket/` 하위 경로 정적 서빙 실브라우저 검증 완료 (콘솔 오류 0건, 자산 404 0건, `v0.4.1` 정상 표시)
+- 실제로 확인한 것: 라이브 `4ai4me/Gmarket` Actions 실행 로그 단계별 상태, `https://4ai4me.github.io/Gmarket/` 응답 HTML, `npm --legacy-peer-deps` 해결, 단위 테스트 17건, 타입체크/빌드, `/Gmarket/` 하위 경로 정적 서빙 실브라우저 렌더링
+- 확인하지 못한 것 / 사용자 확인 필요: 수정본을 `4ai4me/Gmarket` 원격 저장소 `main`에 푸시하고, GitHub 저장소 `Settings → Pages → Build and deployment → Source`를 **`GitHub Actions`**로 전환한 뒤 실제 `https://4ai4me.github.io/Gmarket/` 접속 확인
+- 남은 이슈: 없음
