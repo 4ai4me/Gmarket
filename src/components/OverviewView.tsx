@@ -1,4 +1,4 @@
-import { ArrowRight, FileSpreadsheet, ListTree } from 'lucide-react';
+import { ArrowRight, FileSpreadsheet, ListTree, TrendingUp } from 'lucide-react';
 import type { CropRankingRow, GarakLiveResponse } from '../types/garak';
 import type { NavTab } from './Sidebar';
 import { formatKrw, formatKrwCompact } from '../utils/unitParser';
@@ -8,8 +8,18 @@ interface OverviewViewProps {
   rankingsByNative: CropRankingRow[];
   rankingsByProfit: CropRankingRow[];
   liveCatalog: GarakLiveResponse | null;
+  analyzedCropCount: number;
+  curatedCropCount: number;
+  inferredLiveCount: number;
   uploadedCount: number;
   applyUploadedOverrides: boolean;
+  supplyRiskSummary?: {
+    oversupplyCount: number;
+    opportunityCount: number;
+    stableCount: number;
+    topResilientName: string;
+    topResilientMinus20Profit: number;
+  };
   onNavigate: (tab: NavTab) => void;
   onInspectCropRoi: (cropId: string) => void;
 }
@@ -19,8 +29,12 @@ export function OverviewView({
   rankingsByNative,
   rankingsByProfit,
   liveCatalog,
+  analyzedCropCount,
+  curatedCropCount,
+  inferredLiveCount,
   uploadedCount,
   applyUploadedOverrides,
+  supplyRiskSummary,
   onNavigate,
   onInspectCropRoi,
 }: OverviewViewProps) {
@@ -34,10 +48,10 @@ export function OverviewView({
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
-            가락시장 품목 단가 · 1년 재배 수지타산 개요
+            가락시장 전 품목 단가 · 1년 재배 수지타산 개요
           </h2>
           <p className="text-sm text-slate-600 mt-1.5">
-            kg당 환산 단가뿐 아니라 상자·단·속·망 등 작물 고유 거래단위와 1년 재배 회전율·경영비를 함께 비교합니다.
+            가락시장에 등록된 재배가능 농산물 전체를 경매단가(kg·고유단위)와 재배방식별 1년 수지타산으로 교차 분석합니다.
           </p>
         </div>
         <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2 shrink-0">
@@ -46,7 +60,7 @@ export function OverviewView({
           <span>
             {applyUploadedOverrides && uploadedCount > 0
               ? `업로드 엑셀 ${uploadedCount}건 실측 반영`
-              : '기준 시세표 + 실시간 품목 연동'}
+              : `교차분석 ${analyzedCropCount}품목 연동`}
           </span>
         </div>
       </div>
@@ -54,17 +68,17 @@ export function OverviewView({
       {/* 4-Column KPI Strip */}
       <section aria-label="핵심 지표" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200 rounded-lg p-5">
-          <div className="text-xs text-slate-500">가락시장 실시간 거래 품목</div>
+          <div className="text-xs text-slate-500">1년 수지타산 교차분석 품목</div>
           <div className="mt-2 flex items-baseline justify-between gap-2">
             <span className="text-2xl font-bold font-num text-slate-900">
-              {liveCatalog ? `${liveCatalog.itemCount}종` : `${rankingsByKg.length}종`}
+              {analyzedCropCount}종
             </span>
-            <span className="text-xs text-slate-500 font-num">
-              {liveCatalog ? `${liveCatalog.rawOptionCount}개 단위 조합` : '기준 DB'}
+            <span className="text-xs text-emerald-700 font-num font-medium">
+              가락 전체 {liveCatalog ? `${liveCatalog.itemCount}종` : '대기'}
             </span>
           </div>
-          <div className="mt-3 text-xs text-slate-500 truncate">
-            {liveCatalog ? `${liveCatalog.date} 가락시장 실시간 조회` : '품목 탭에서 실시간 조회 가능'}
+          <div className="mt-3 text-xs text-slate-500 truncate font-num">
+            정밀 기준 {curatedCropCount}종 + 가락 자동매핑 {inferredLiveCount}종
           </div>
         </div>
 
@@ -241,14 +255,35 @@ export function OverviewView({
       </div>
 
       {/* Direct Workflow Actions */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white border border-slate-200 rounded-lg p-5 flex items-start justify-between gap-4">
           <div className="space-y-1">
             <h3 className="text-sm font-semibold text-slate-900">
-              가락시장 전체 거래 품목·단위 실시간 조회
+              년간 수급 추세 · 내년 가격 경보
             </h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              가락시장 서버에서 특정 날짜의 전체 경매 품목과 포장단위(10kg, 15kg, 2kg, 300g 등)를 직접 불러옵니다.
+              {supplyRiskSummary
+                ? `하락주의 ${supplyRiskSummary.oversupplyCount}종 · 유망/안정 ${supplyRiskSummary.opportunityCount + supplyRiskSummary.stableCount}종 · -20% 방어 1위 ${supplyRiskSummary.topResilientName} (${formatKrwCompact(supplyRiskSummary.topResilientMinus20Profit)})`
+                : '5개년 반입량 추세와 단가 -20% 하락 시 안전마진을 점검합니다.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('supply_risk')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors whitespace-nowrap shrink-0"
+          >
+            <TrendingUp className="w-4 h-4" />
+            <span>수급·리스크</span>
+          </button>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-lg p-5 flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-semibold text-slate-900">
+              가락시장 전체 거래 품목·단위 조회
+            </h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              특정 날짜·12개월 통합 전체 경매 품목과 포장단위(10kg, 15kg, 2kg, .75kg 등)를 직접 불러옵니다.
             </p>
           </div>
           <button
@@ -264,10 +299,10 @@ export function OverviewView({
         <div className="bg-white border border-slate-200 rounded-lg p-5 flex items-start justify-between gap-4">
           <div className="space-y-1">
             <h3 className="text-sm font-semibold text-slate-900">
-              가락시장 경매결과 엑셀(.xls) 직접 분석
+              경매결과 엑셀(.xls) 다기간 누적 분석
             </h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              OZViewer에서 저장한 경매결과 또는 품목별 가격 엑셀 파일을 올리면 수량 가중평균 kg단가와 고유단위 단가를 즉시 계산합니다.
+              여러 연도·월 엑셀 파일을 누적 병합해 가중평균 단가와 산지 변화를 순위·지도·ROI에 즉시 반영합니다.
             </p>
           </div>
           <button

@@ -6,6 +6,8 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // Relative base enables seamless hosting on GitHub Pages subpaths (e.g. /Gmarket/) as well as root servers
+    base: './',
     plugins: [
       react(),
       tailwindcss(),

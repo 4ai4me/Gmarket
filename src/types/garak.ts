@@ -1,10 +1,14 @@
 export type CropCategory =
   | '엽채·나물류'
+  | '양채·허브류'
   | '과채류'
   | '근채류'
   | '양념채소'
   | '과실류'
-  | '버섯류';
+  | '버섯류'
+  | '두류·곡류';
+
+export type CropDataSourceTier = 'curated' | 'archetype_inferred' | 'excel_measured';
 
 export type CultivationMethodKey = 'open_field' | 'unheated_house' | 'heated_house' | 'smart_farm';
 
@@ -61,6 +65,12 @@ export interface CropProfile {
   soilAndClimateNote: string;
   keyRiskNote: string;
   methods: CultivationMethodProfile[];
+  /** Provenance: curated precision DB, archetype cross-model for Garak live item, or Excel-only item */
+  dataSourceTier?: CropDataSourceTier;
+  /** Real Garak trading units observed from live catalog API */
+  garakLiveUnits?: string[];
+  /** True when present in the currently fetched live Garak Market catalog */
+  inLiveGarakCatalog?: boolean;
 }
 
 export interface GarakLiveItem {
@@ -69,16 +79,18 @@ export interface GarakLiveItem {
   units: string[];
   hasWeightUnit: boolean;
   hasNonWeightUnit: boolean;
+  sourceModes?: ('auction' | 'summary')[];
 }
 
 export interface GarakLiveResponse {
-  source: 'live';
+  source: 'live' | 'snapshot';
   date: string;
-  mode: 'auction' | 'summary';
+  mode: 'all_year' | 'auction' | 'summary';
   fetchedAt: string;
   itemCount: number;
   rawOptionCount: number;
   cached?: boolean;
+  sampledDatesCount?: number;
   items: GarakLiveItem[];
 }
 
@@ -99,6 +111,8 @@ export interface AuctionRecord {
   origin: string;
   ecoType: string;
   sourceFormat: 'auction_result' | 'item_summary';
+  /** Optional prior-year shipment weight (kg) for regional growth/decline comparison */
+  prevYearKg?: number;
 }
 
 export interface ExcelParseResult {

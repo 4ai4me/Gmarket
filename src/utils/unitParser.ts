@@ -60,8 +60,8 @@ export function parseGarakUnit(unitRaw: string, itemName = ''): ParsedUnit {
     };
   }
 
-  // 1. Explicit kg pattern (e.g., "10kg", "10kg상자", "2.5kg(특)", "10.5KG")
-  const kgMatch = cleaned.match(/(\d+(?:\.\d+)?)\s*kg/i);
+  // 1. Explicit kg pattern (e.g., "10kg", "10kg상자", "2.5kg(특)", ".75kg", ".5kg")
+  const kgMatch = cleaned.match(/((?:\d+(?:\.\d+)?|\.\d+))\s*kg/i);
   if (kgMatch) {
     const kg = parseFloat(kgMatch[1]);
     if (kg > 0 && Number.isFinite(kg)) {
@@ -76,8 +76,8 @@ export function parseGarakUnit(unitRaw: string, itemName = ''): ParsedUnit {
     }
   }
 
-  // 2. Explicit gram pattern (e.g., "300g", "1500g", "500g팩")
-  const gMatch = cleaned.match(/(\d+(?:\.\d+)?)\s*g(?![a-z])/i);
+  // 2. Explicit gram pattern (e.g., "300g", "1500g", "500g팩", ".5g")
+  const gMatch = cleaned.match(/((?:\d+(?:\.\d+)?|\.\d+))\s*g(?![a-z])/i);
   if (gMatch) {
     const grams = parseFloat(gMatch[1]);
     if (grams > 0 && Number.isFinite(grams)) {
@@ -93,7 +93,7 @@ export function parseGarakUnit(unitRaw: string, itemName = ''): ParsedUnit {
   }
 
   // 3. Explicit numeric count + non-weight unit (e.g., "3포기망", "100속", "1단", "2접")
-  const countMatch = cleaned.match(/(\d+(?:\.\d+)?)/);
+  const countMatch = cleaned.match(/((?:\d+(?:\.\d+)?|\.\d+))/);
   const count = countMatch ? Math.max(0.1, parseFloat(countMatch[1])) : 1;
 
   for (const rule of CROP_UNIT_KG_DEFAULTS) {

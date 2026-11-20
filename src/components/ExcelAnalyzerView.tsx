@@ -1,38 +1,48 @@
 import { useMemo, useRef, useState } from 'react';
 import {
+  Calculator,
   CheckCircle2,
   Download,
   FileSpreadsheet,
   Trash2,
   Upload,
 } from 'lucide-react';
-import type { AuctionRecord, ExcelParseResult } from '../types/garak';
-import { aggregateAuctionRecords } from '../utils/analytics';
+import type { AuctionRecord, CropProfile, ExcelParseResult } from '../types/garak';
+import { aggregateAuctionRecords, matchAuctionRecordToCrop } from '../utils/analytics';
 import {
   exportAuctionRecordsToCsv,
   parseGarakExcelBuffer,
 } from '../utils/excelParser';
-import { formatKrw } from '../utils/unitParser';
+import { buildUploadedMultiPeriodComparison } from '../utils/supplyRisk';
+import { formatKrw, formatKrwCompact } from '../utils/unitParser';
 import { SAMPLE_GARAK_AUCTION_RECORDS } from '../data/crops';
+import { MULTI_PERIOD_SAMPLE_AUCTION_RECORDS } from '../data/garakMultiYearTrends';
 
 interface ExcelAnalyzerViewProps {
   records: AuctionRecord[];
+  crops: CropProfile[];
   applyUploadedOverrides: boolean;
   onReplaceRecords: (records: AuctionRecord[], metaLabel: string) => void;
+  onAppendRecords: (records: AuctionRecord[], metaLabel: string) => void;
   onClearRecords: () => void;
   onToggleApplyOverrides: (val: boolean) => void;
+  onInspectCropRoi: (cropId: string) => void;
   metaLabel: string;
 }
 
 export function ExcelAnalyzerView({
   records,
+  crops,
   applyUploadedOverrides,
   onReplaceRecords,
+  onAppendRecords,
   onClearRecords,
   onToggleApplyOverrides,
+  onInspectCropRoi,
   metaLabel,
 }: ExcelAnalyzerViewProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadMode, setUploadMode] = useState<'replace' | 'append'>('append');
   const [parseFeedback, setParseFeedback] = useState<{
     warnings: string[];
     errors: string[];
@@ -43,6 +53,11 @@ export function ExcelAnalyzerView({
 
   const groupedSummary = useMemo(
     () => aggregateAuctionRecords(records),
+    [records]
+  );
+
+  const multiPeriodAnalysis = useMemo(
+    () => buildUploadedMultiPeriodComparison(records),
     [records]
   );
 
@@ -95,13 +110,17 @@ export function ExcelAnalyzerView({
       detectedDate: lastDate,
     });
 
-    // Only overwrite active records if validation produced at least 1 valid record (Data Protection Rule)
+    // Only overwrite/append if validation produced at least 1 valid record (Data Protection Rule)
     if (mergedRecords.length > 0) {
       const label =
         fileList.length === 1
           ? fileList[0].name
           : `${fileList[0].name} 외 ${fileList.length - 1}개 파일`;
-      onReplaceRecords(mergedRecords, label);
+      if (uploadMode === 'append' && records.length > 0) {
+        onAppendRecords(mergedRecords, label);
+      } else {
+        onReplaceRecords(mergedRecords, label);
+      }
     }
   };
 
@@ -117,6 +136,21 @@ export function ExcelAnalyzerView({
     onReplaceRecords(
       SAMPLE_GARAK_AUCTION_RECORDS,
       '가락시장 샘플 (2026.11.20 쪽파·고구마·감자)'
+    );
+  };
+
+  const handleLoadMultiPeriodSample = () => {
+    setParseFeedback({
+      warnings: [
+        '2024~2026년 다년도 비교 샘플(파·고수·마늘·고구마 16건)을 불러왔습니다. 하단 기간 비교표 및 수급 추세/지도 탭에서 연도별 물량·단가·산지 변화를 확인하세요.',
+      ],
+      errors: [],
+      detectedFormat: 'auction_result',
+      detectedDate: '2026-11-20',
+    });
+    onReplaceRecords(
+      MULTI_PERIOD_SAMPLE_AUCTION_RECORDS,
+      '다기간 비교 샘플 (2024~2026년 3개년 누적)'
     );
   };
 
@@ -150,11 +184,20 @@ export function ExcelAnalyzerView({
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
+            onClick={handleLoadMultiPeriodSample}
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg whitespace-nowrap"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
+            <span>다기간(2024·2025·2026) 비교 샘플</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleLoadSample}
             className="inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg whitespace-nowrap"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
-            <span>샘플 경매결과 불러오기</span>
+            <FileSpreadsheet className="w-4 h-4 text-slate-500" />
+            <span>단일일 샘플 불러오기</span>
           </button>
 
           {records.length > 0 && (
@@ -216,9 +259,33 @@ export function ExcelAnalyzerView({
           가락시장에서 저장한 .xls / .xlsx / .csv 파일을 끌어다 놓거나 선택하세요
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          여러 일자 파일을 동시에 선택해 병합 분석할 수 있습니다. 페이지 구분선(1/22 등)과 쉼표 숫자 문자열(&quot;42,000&quot;)은 자동 정제됩니다.
+          여러 연도·월 파일을 누적 병합해 기간별 반입 물량과 단가·산지 변화를 자동 비교하며, 브라우저에 자동 저장됩니다.
         </p>
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+          <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setUploadMode('append')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                uploadMode === 'append'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              기존 데이터에 누적 병합
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadMode('replace')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                uploadMode === 'replace'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              새 파일로 교체
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -278,6 +345,162 @@ export function ExcelAnalyzerView({
             </label>
           </div>
 
+          {/* Multi-Period Uploaded Comparison Section (shows when 2+ years or 2+ months exist) */}
+          {multiPeriodAnalysis && (
+            <section
+              aria-label="연도·월별 누적 경매물량 및 단가 비교"
+              className="bg-white border border-slate-200 rounded-lg overflow-hidden"
+            >
+              <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    {multiPeriodAnalysis.granularity === 'year'
+                      ? '연도별 누적 경매물량 · 단가 · 산지 변화 비교'
+                      : '월별 누적 경매물량 · 단가 · 산지 변화 비교'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5 font-num">
+                    비교 기간 {multiPeriodAnalysis.periods.map((p) => p.periodKey).join(' → ')} ·
+                    최신({multiPeriodAnalysis.latestPeriodLabel}) vs 직전({multiPeriodAnalysis.prevPeriodLabel}) 품목·산지 증감 분석
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-slate-200">
+                <div className="lg:col-span-5 overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
+                        <th className="py-2.5 px-4 text-left font-medium">기간</th>
+                        <th className="py-2.5 px-3 text-right font-medium">총 물량</th>
+                        <th className="py-2.5 px-3 text-right font-medium">물량 증감</th>
+                        <th className="py-2.5 px-4 text-right font-medium">평균 kg단가</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {multiPeriodAnalysis.periods.map((p) => (
+                        <tr key={p.periodKey} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-4 font-num font-semibold text-slate-900 whitespace-nowrap">
+                            {p.periodKey}
+                            <div className="text-[11px] font-normal text-slate-500">
+                              주력 {p.topItem} · {p.topOrigin}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-num text-slate-700 whitespace-nowrap">
+                            {p.totalKg >= 1000
+                              ? `${(p.totalKg / 1000).toFixed(2)}톤`
+                              : `${p.totalKg.toLocaleString('ko-KR')}kg`}
+                            <div className="text-[11px] text-slate-400">
+                              {formatKrwCompact(p.totalAmountKrw)}
+                            </div>
+                          </td>
+                          <td
+                            className={`py-2.5 px-3 text-right font-num font-semibold whitespace-nowrap ${
+                              p.volumeChangePct === null
+                                ? 'text-slate-400'
+                                : p.volumeChangePct >= 5
+                                  ? 'text-amber-700'
+                                  : p.volumeChangePct <= -2.5
+                                    ? 'text-emerald-700'
+                                    : 'text-slate-600'
+                            }`}
+                          >
+                            {p.volumeChangePct === null
+                              ? '-'
+                              : p.volumeChangePct > 0
+                                ? `+${p.volumeChangePct}%`
+                                : `${p.volumeChangePct}%`}
+                          </td>
+                          <td className="py-2.5 px-4 text-right font-num font-semibold text-slate-900 whitespace-nowrap">
+                            {formatKrw(p.weightedAvgKgPrice)}
+                            {p.priceChangePct !== null && (
+                              <div
+                                className={`text-[11px] font-medium ${
+                                  p.priceChangePct >= 0 ? 'text-emerald-700' : 'text-red-700'
+                                }`}
+                              >
+                                {p.priceChangePct > 0
+                                  ? `+${p.priceChangePct}%`
+                                  : `${p.priceChangePct}%`}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="lg:col-span-7 overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
+                        <th className="py-2.5 px-4 text-left font-medium">품목</th>
+                        <th className="py-2.5 px-3 text-right font-medium">물량 변화</th>
+                        <th className="py-2.5 px-3 text-right font-medium">단가 변화</th>
+                        <th className="py-2.5 px-4 text-left font-medium">증가 · 감소 출하지</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {multiPeriodAnalysis.itemShifts.slice(0, 10).map((it) => (
+                        <tr key={it.item} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-4 font-semibold text-slate-900 whitespace-nowrap">
+                            {it.item}
+                            <div className="text-[11px] font-num font-normal text-slate-500">
+                              {it.prevKg.toLocaleString('ko-KR')} → {it.latestKg.toLocaleString('ko-KR')}kg
+                            </div>
+                          </td>
+                          <td
+                            className={`py-2.5 px-3 text-right font-num font-semibold whitespace-nowrap ${
+                              it.volumeChangePct >= 5
+                                ? 'text-amber-700'
+                                : it.volumeChangePct <= -2.5
+                                  ? 'text-emerald-700'
+                                  : 'text-slate-700'
+                            }`}
+                          >
+                            {it.volumeChangePct > 0
+                              ? `+${it.volumeChangePct}%`
+                              : `${it.volumeChangePct}%`}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-num whitespace-nowrap">
+                            <span
+                              className={`font-semibold ${
+                                it.priceChangePct >= 0 ? 'text-emerald-700' : 'text-red-700'
+                              }`}
+                            >
+                              {it.priceChangePct > 0
+                                ? `+${it.priceChangePct}%`
+                                : `${it.priceChangePct}%`}
+                            </span>
+                            <div className="text-[11px] text-slate-400">
+                              {formatKrw(it.latestAvgKgPrice)}/kg
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-4 text-slate-600">
+                            {it.expandingRegions.length > 0 && (
+                              <div className="text-amber-800 truncate max-w-[240px]">
+                                확대: {it.expandingRegions.join(', ')}
+                              </div>
+                            )}
+                            {it.shrinkingRegions.length > 0 && (
+                              <div className="text-emerald-800 truncate max-w-[240px]">
+                                감소: {it.shrinkingRegions.join(', ')}
+                              </div>
+                            )}
+                            {it.expandingRegions.length === 0 &&
+                              it.shrinkingRegions.length === 0 && (
+                                <span className="text-slate-400">산지 비중 보합</span>
+                              )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* Aggregated Group Summary */}
           <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
@@ -298,36 +521,74 @@ export function ExcelAnalyzerView({
                     <th className="py-2.5 px-3 text-right font-medium">단위 최저~최고</th>
                     <th className="py-2.5 px-3 text-right font-medium">고유단위 가중평균</th>
                     <th className="py-2.5 px-3 text-right font-medium">kg당 가중평균</th>
-                    <th className="py-2.5 px-4 text-left font-medium">주요 출하지</th>
+                    <th className="py-2.5 px-3 text-left font-medium">주요 출하지</th>
+                    <th className="py-2.5 px-4 text-right font-medium">수지타산</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {groupedSummary.map((g) => (
-                    <tr key={g.key} className="hover:bg-slate-50">
-                      <td className="py-2.5 px-4 whitespace-nowrap">
-                        <div className="font-medium text-slate-900">{g.variety}</div>
-                        <div className="text-xs text-slate-500">{g.item}</div>
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap font-num">
-                        {g.unitRaw} · {g.grade}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-num text-xs text-slate-600 whitespace-nowrap">
-                        {g.recordCount}건 / {g.totalQuantity.toLocaleString('ko-KR')}단위
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-num text-xs text-slate-600 whitespace-nowrap">
-                        {formatKrw(g.minUnitPrice)} ~ {formatKrw(g.maxUnitPrice)}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-num font-semibold text-slate-900 whitespace-nowrap">
-                        {formatKrw(g.weightedAvgUnitPrice)}
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-num font-bold text-emerald-700 whitespace-nowrap">
-                        {formatKrw(g.weightedAvgKgPrice)}
-                      </td>
-                      <td className="py-2.5 px-4 text-xs text-slate-600 truncate max-w-[200px]">
-                        {g.origins.join(', ') || '-'}
-                      </td>
-                    </tr>
-                  ))}
+                  {groupedSummary.map((g) => {
+                    const matchedCrop = matchAuctionRecordToCrop(
+                      {
+                        id: g.key,
+                        date: '',
+                        corporation: '',
+                        item: g.item,
+                        variety: g.variety,
+                        unitRaw: g.unitRaw,
+                        kgPerUnit: g.kgPerUnit,
+                        nativeUnitLabel: g.unitRaw,
+                        isEstimatedKg: false,
+                        grade: g.grade,
+                        quantity: g.totalQuantity,
+                        pricePerUnit: g.weightedAvgUnitPrice,
+                        pricePerKg: g.weightedAvgKgPrice,
+                        origin: '',
+                        ecoType: '',
+                        sourceFormat: 'auction_result',
+                      },
+                      crops
+                    );
+                    return (
+                      <tr key={g.key} className="hover:bg-slate-50">
+                        <td className="py-2.5 px-4 whitespace-nowrap">
+                          <div className="font-medium text-slate-900">{g.variety}</div>
+                          <div className="text-xs text-slate-500">{g.item}</div>
+                        </td>
+                        <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap font-num">
+                          {g.unitRaw} · {g.grade}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-num text-xs text-slate-600 whitespace-nowrap">
+                          {g.recordCount}건 / {g.totalQuantity.toLocaleString('ko-KR')}단위
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-num text-xs text-slate-600 whitespace-nowrap">
+                          {formatKrw(g.minUnitPrice)} ~ {formatKrw(g.maxUnitPrice)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-num font-semibold text-slate-900 whitespace-nowrap">
+                          {formatKrw(g.weightedAvgUnitPrice)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-num font-bold text-emerald-700 whitespace-nowrap">
+                          {formatKrw(g.weightedAvgKgPrice)}
+                        </td>
+                        <td className="py-2.5 px-3 text-xs text-slate-600 truncate max-w-[180px]">
+                          {g.origins.join(', ') || '-'}
+                        </td>
+                        <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                          {matchedCrop ? (
+                            <button
+                              type="button"
+                              onClick={() => onInspectCropRoi(matchedCrop.id)}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-900"
+                            >
+                              <Calculator className="w-3.5 h-3.5" />
+                              <span>ROI 분석</span>
+                            </button>
+                          ) : (
+                            <span className="text-xs text-slate-400">비재배</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

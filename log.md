@@ -29,3 +29,76 @@
   - 연간/월간/주간 및 kg당/고유단위/10a 연매출 정렬 전환과 1년 수지타산 계산
 - 확인하지 못한 것 / 사용자 확인 필요: 사용자가 보유한 다수 일자의 대용량 가락시장 `.xls` 실파일 직접 드래그앤드롭 업로드 테스트
 - 남은 이슈: 없음
+
+## [v0.1.0] 2026-11-20 — 가락시장 전 품목 × 재배방식 1년 수지타산 교차분석 확장 및 GitHub Pages 호스팅 대응
+
+### 시작 전
+- Tier: 2 (기능 확장 + 정적 호스팅 배포 구조 개선)
+- 요청 내용:
+  1. 품목 수 대비 1년 수지타산 분석 대상이 적은 문제 해결 — 가락시장 등록 전체 재배가능 품목에 대해 경매단가와 재배방법을 교차 분석
+  2. GitHub Pages(`https://4ai4me.github.io/Gmarket/`) 호스팅 시 빈 페이지가 뜨는 문제 해결 및 정상 동작 지원
+- 영향 범위 판단: `vite.config.ts`, `server.ts`, `src/types/garak.ts`, `src/data/extraCrops.ts`, `src/data/garakSnapshot.ts`, `src/utils/cropSynthesizer.ts`, `src/utils/analytics.ts`, `src/App.tsx`, 뷰 컴포넌트(`OverviewView`, `CatalogView`, `PriceRankingView`, `RoiSimulatorView`, `ExcelAnalyzerView`), `.github/workflows/deploy-pages.yml`, `public/.nojekyll`.
+- 회귀 위험 검토: 기존 25개 핵심 작목 ID/데이터 및 엑셀 파싱·가중평균 로직은 유지하되, 단일 글자 작물명(`배`, `무`, `밤`, `갓`) 오매칭과 수산물/수입과일의 농산물 오분류를 차단해야 함. 또한 `base: './'` 적용 후 로컬 Express 서버(`/`)와 서브패스(`/Gmarket/`) 모두에서 정상 로드되는지 확인 필요.
+- 검증 계획:
+  1. 확장 단위 테스트 (`analytics.test.ts` 11개 케이스: 전 품목 매핑, 수산·수입 제외, 엑셀 신규 품목 합성, 교차분석 매트릭스)
+  2. `tsc --noEmit` 및 `vite build` + 생성된 `dist/index.html` 상대경로 확인
+  3. 실브라우저 검증: `http://localhost:3000` (Express 실시간 모드) 및 빌드된 `dist/`를 `/Gmarket/` 서브패스로 정적 서빙하여 GitHub Pages 환경 동일 재현 검증
+
+### 완료 후
+- 변경 파일: `VERSION`, `vite.config.ts`, `server.ts`, `src/types/garak.ts`, `src/data/extraCrops.ts`, `src/data/garakSnapshot.ts`, `src/utils/cropSynthesizer.ts`, `src/utils/analytics.ts`, `src/utils/analytics.test.ts`, `src/App.tsx`, `src/components/OverviewView.tsx`, `src/components/CatalogView.tsx`, `src/components/PriceRankingView.tsx`, `src/components/RoiSimulatorView.tsx`, `src/components/ExcelAnalyzerView.tsx`, `.github/workflows/deploy-pages.yml`, `public/.nojekyll`, `README.md`, `log.md`
+- 완료 기준(DoD) 확인 결과:
+  - 단위 테스트 11/11 통과, `tsc --noEmit` 오류 0건, `vite build` 성공(`dist/index.html` 상대경로 `./assets/...` 확인)
+  - 로컬 서버(`http://localhost:3000`, 콘솔 오류 0건) 및 `/Gmarket/` 서브패스 정적 서빙 렌더링 정상 확인
+- 실제로 확인한 것: 단위 테스트 11건, 정적 빌드, 로컬 Express 서버 및 `/Gmarket/` 서브패스 렌더링
+- 확인하지 못한 것 / 사용자 확인 필요: 실제 `4ai4me/Gmarket` 원격 GitHub 저장소 푸시 및 Settings → Pages → GitHub Actions 전환
+- 남은 이슈: 단일일 `auction` 조회만 수행해 `고수` 등 품목별 가격 등록·계절 품목이 누락되는 문제 → `v0.2.0`에서 해결
+
+## [v0.2.0] 2026-11-20 — 가락시장 12개월 통합 전 품목 크롤링 및 고수·허브 독립 정밀 분석 확장
+
+### 시작 전
+- Tier: 2 (크롤링 범위 확장 + 독립 작목 추가 + 분류·단위 파싱 버그 수정)
+- 요청 내용: 가락시장 전체 품목 크롤링 누락 점검("고수"가 안 보이는 문제) 및 단계적 해결
+- 영향 범위 판단: `server.ts`, `src/types/garak.ts`, `src/data/garakSnapshot.ts`, `src/data/extraCrops.ts`, `src/utils/cropSynthesizer.ts`, `src/utils/unitParser.ts`, `src/App.tsx`, `src/components/CatalogView.tsx`, `src/utils/analytics.test.ts`, `VERSION`, `README.md`, `log.md`
+- 회귀 위험 검토: 기존 `herbs_basil_rucola` ID를 유지하면서 `고수`(`cilantro`), `바질`(`basil`), `딜`(`dill`), `파슬리`(`parsley`)를 분리해야 하며, `국산` 접미사 수산물(`게국산`·`김국산` 등)과 `블랙망고수박`의 오분류 및 `.75kg` 소수점 단위 오파싱을 함께 방지해야 함.
+- 검증 계획:
+  1. 단위 테스트 12건 (`analytics.test.ts`: 12개월 통합 660종 스냅샷, `고수` 독립 매핑, 국산 수산물 제외, `.75kg` 파싱, `블랙망고수박` 분류)
+  2. `tsc --noEmit` + `vite build`
+  3. Playwright 실브라우저 검증 (`http://localhost:3000`에서 12개월 통합 664종 로드, `고수` 검색 → `고수 정밀 ROI` 연동 확인, 콘솔 오류 0건)
+
+### 완료 후
+- 변경 파일: `VERSION`, `server.ts`, `src/types/garak.ts`, `src/data/garakSnapshot.ts`, `src/data/extraCrops.ts`, `src/utils/cropSynthesizer.ts`, `src/utils/unitParser.ts`, `src/App.tsx`, `src/components/CatalogView.tsx`, `src/utils/analytics.test.ts`, `README.md`, `log.md`
+- 완료 기준(DoD) 확인 결과:
+  - 단위 테스트 12/12 통과 (`analytics.test.ts`)
+  - `tsc --noEmit` 및 `vite build` 무오류 통과
+  - 실브라우저(`http://localhost:3000`)에서 12개월 통합 664품목 실시간 로드, 교차분석 133품목(정밀 기준 81종 + 가락 자동매핑 52종), `고수` 검색 → `고수 정밀 ROI` 시뮬레이터 연동 및 콘솔 오류 0건 확인
+  - 검수 중 발견한 버그 2건 즉시 수정 및 회귀 테스트 추가: `.75kg` 소수점 단위 75kg 오파싱 수정, `블랙망고수박`의 `고수` 부분일치 오분류 수정
+- 실제로 확인한 것: 실시간 12개월 가락 API(`mode=all_year`), `고수` 독립 카탈로그·ROI 연동, 정적 스냅샷 660종 갱신, 단위 테스트 12건, 빌드/타입 검사
+- 확인하지 못한 것 / 사용자 확인 필요: 실제 `4ai4me/Gmarket` 원격 GitHub 저장소 푸시 및 다음 단계(대한민국 지도 출하지별 경매 현황 대시보드) 착수 여부
+- 남은 이슈: 없음 (다음 단계 작업: 대한민국 지도 기반 출하지별 경매 현황 대시보드)
+
+## [v0.3.0] 2026-11-20 — 대한민국 지도 기반 출하지별 경매 현황 대시보드 구축 (2단계)
+
+### 시작 전
+- Tier: 2 (신규 지도 분석 대시보드 + 출하지 정규화·지역 집계 엔진 + 전국 17개 시·도 기준 데이터)
+- 요청 내용: 대한민국 지도 기준으로 각 품목별로 어느 지역(시·도 / 시·군·구) 상품이 얼마나 경매되고 있는지(품목, 품종, 단위, 등급, 수량, 출하지, 가격 등) 확인하는 대시보드 구축.
+- 영향 범위 판단: 신규 모듈 `src/utils/koreaOrigin.ts`, `src/data/originAuctionBaseline.ts`, `src/components/KoreaOriginMapSvg.tsx`, `src/components/OriginMapView.tsx` 및 네비게이션 연결(`src/components/Sidebar.tsx`, `src/components/TopBar.tsx`, `src/App.tsx`), 테스트(`src/utils/analytics.test.ts`), `VERSION`, `README.md`, `log.md`.
+- 회귀 위험 검토: 기존 5개 탭(`대시보드 요약`, `전체 품목·단위`, `기간별 단가 순위`, `재배·1년 수지타산`, `경매결과 엑셀 분석`)과 엑셀 업로드 상태·ROI 연동은 그대로 유지해야 하며, 가락시장 특유의 출하지 표기(`전남광주통합시 보성군`, `강원특별자치도 평창군`, `전북특별자치도 완주군`, `논산시` 등 시·도 생략 표기)와 수입·미상 출하지를 안전하게 분류해야 함.
+- 검증 계획:
+  1. 단위 테스트 14건 (`analytics.test.ts`: 기존 12건 회귀 + `parseOriginToRegion` 6종 표기 패턴 + `aggregateAuctionByRegion` 전국 17개 시·도 집계 및 `고수`/`파` 필터 정합성)
+  2. `tsc --noEmit` 및 `vite build`
+  3. Playwright 실브라우저 검증 (`http://localhost:3000`, 1440×900): `출하지 현황 지도` 탭 진입, 17개 시·도·77건 전국 현황, `고수` 품목 필터링 + `경기도` 드릴다운(`남양주시`/`이천시`), 하단 경매 상세 내역 테이블, 콘솔 오류 0건 확인
+
+### 완료 후
+- 변경 파일: `VERSION`, `src/utils/koreaOrigin.ts`, `src/data/originAuctionBaseline.ts`, `src/components/KoreaOriginMapSvg.tsx`, `src/components/OriginMapView.tsx`, `src/components/Sidebar.tsx`, `src/components/TopBar.tsx`, `src/App.tsx`, `src/utils/analytics.test.ts`, `README.md`, `log.md`
+- 완료 기준(DoD) 확인 결과:
+  - 단위 테스트 14/14 통과 (`npx tsx --test src/utils/analytics.test.ts`)
+  - `tsc --noEmit` 오류 0건 및 `vite build` 프로덕션 빌드 성공
+  - Playwright 실브라우저(`1440×900`) 검증 완료:
+    - `출하지 현황 지도` 탭에서 17개 시·도 / 60개 시·군·구 / 77건 전국 주산지 현황 및 4개 KPI 정상 렌더링 확인
+    - `고수` 품목 선택 시 4개 출하 시·도(경기·충남·전북·경남)로 지도 즉시 전환, `경기도` 선택 시 `남양주시(208kg, 9,000원/kg)`·`이천시(152kg, 9,625원/kg)` 시·군·구 드릴다운 및 하단 `경기도 경매 상세 내역` 테이블 동기화 확인
+    - 브라우저 콘솔 오류 0건, 경고 0건
+  - 1차 UI 검수 개선 반영: `서울특별시 강동구` 열무 행 추가로 전국 17개 시·도 100% 커버리지 일치, 지도 하단 안내/호버 바를 제주 인셋 아래 정적 영역으로 이동해 겹침 차단, 헤더 중복 엑셀 버튼 정리
+- 실제로 확인한 것: 단위 테스트 14건, `tsc --noEmit`, `vite build`, `http://localhost:3000` 실브라우저 지도 렌더링·품목 필터·시·도 드릴다운·상세 내역 테이블
+- 확인하지 못한 것 / 사용자 확인 필요: 사용자가 보유한 실제 가락시장 OZViewer `.xls` 파일을 `내 엑셀(.xls) 올리기`로 업로드했을 때의 실측 출하지 매핑 확인 및 `4ai4me/Gmarket` 원격 저장소 푸시
+- 남은 이슈: 없음
+

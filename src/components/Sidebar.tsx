@@ -4,10 +4,19 @@ import {
   FileSpreadsheet,
   LayoutDashboard,
   ListTree,
+  MapPin,
+  TrendingUp,
   X,
 } from 'lucide-react';
 
-export type NavTab = 'overview' | 'catalog' | 'ranking' | 'roi' | 'excel';
+export type NavTab =
+  | 'overview'
+  | 'catalog'
+  | 'ranking'
+  | 'supply_risk'
+  | 'roi'
+  | 'origin_map'
+  | 'excel';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -44,10 +53,22 @@ const NAV_ITEMS: Array<{
     icon: BarChart3,
   },
   {
+    id: 'supply_risk',
+    label: '수급 추세 · 리스크',
+    description: '년간 물량 · 내년 가격 경보',
+    icon: TrendingUp,
+  },
+  {
     id: 'roi',
     label: '재배 · 1년 수지타산',
     description: '재배주기 · ROI 시뮬레이터',
     icon: Calculator,
+  },
+  {
+    id: 'origin_map',
+    label: '출하지 현황 지도',
+    description: '대한민국 지역별 경매 분포',
+    icon: MapPin,
   },
   {
     id: 'excel',

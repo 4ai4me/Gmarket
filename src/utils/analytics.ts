@@ -85,22 +85,44 @@ export function matchAuctionRecordToCrop(
   record: AuctionRecord,
   crops: CropProfile[]
 ): CropProfile | null {
-  const haystack = `${record.item} ${record.variety}`.replace(/\s+/g, '').toLowerCase();
+  const itemClean = (record.item || '').replace(/\s+/g, '').toLowerCase();
+  const varietyClean = (record.variety || '').replace(/\s+/g, '').toLowerCase();
+  const haystack = `${itemClean} ${varietyClean}`.trim();
 
-  // First pass: exact name or variety match (prefer more specific names like 쪽파 over 파)
-  const sortedBySpecificity = [...crops].sort((a, b) => b.name.length - a.name.length);
-
-  for (const crop of sortedBySpecificity) {
+  // Pass 1: exact item or variety match
+  for (const crop of crops) {
     const targetName = crop.name.replace(/\s+/g, '').toLowerCase();
-    if (haystack.includes(targetName)) {
+    const targetBase = targetName.replace(/\(.*\)$/, '');
+    if (
+      itemClean === targetName ||
+      varietyClean === targetName ||
+      itemClean === targetBase ||
+      varietyClean === targetBase
+    ) {
       return crop;
     }
   }
 
+  // Pass 2: specific name match (longest first; single-char names only match exact item/variety)
+  const sortedBySpecificity = [...crops].sort((a, b) => b.name.length - a.name.length);
+
+  for (const crop of sortedBySpecificity) {
+    const targetBase = crop.name.replace(/\(.*\)$/, '').replace(/\s+/g, '').toLowerCase();
+    if (targetBase.length >= 2 && haystack.includes(targetBase)) {
+      if (targetBase === '고구마' && haystack.includes('고구마순')) continue;
+      if (targetBase === '배추' && haystack.includes('양배추')) continue;
+      if (targetBase === '토마토' && haystack.includes('방울토마토')) continue;
+      return crop;
+    }
+  }
+
+  // Pass 3: alias match (>= 2 chars)
   for (const crop of sortedBySpecificity) {
     for (const alias of crop.aliases) {
       const aNorm = alias.replace(/\s+/g, '').toLowerCase();
       if (aNorm.length >= 2 && haystack.includes(aNorm)) {
+        if (aNorm === '고구마' && haystack.includes('고구마순')) continue;
+        if (aNorm === '배추' && haystack.includes('양배추')) continue;
         return crop;
       }
     }

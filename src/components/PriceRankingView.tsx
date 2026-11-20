@@ -32,11 +32,13 @@ const CHART_COLORS = ['#15803d', '#0f766e', '#b45309', '#4338ca'];
 const CATEGORIES: Array<'전체' | CropCategory> = [
   '전체',
   '엽채·나물류',
+  '양채·허브류',
   '과채류',
   '근채류',
   '양념채소',
   '과실류',
   '버섯류',
+  '두류·곡류',
 ];
 
 export function PriceRankingView({
@@ -51,6 +53,7 @@ export function PriceRankingView({
   const [selectedWeek, setSelectedWeek] = useState<number>(46);
   const [unitBasis, setUnitBasis] = useState<UnitBasis>('kg');
   const [category, setCategory] = useState<'전체' | CropCategory>('전체');
+  const [sourceScope, setSourceScope] = useState<'all' | 'curated' | 'live'>('all');
   const [search, setSearch] = useState('');
   const [comparedCropIds, setComparedCropIds] = useState<string[]>([
     'strawberry',
@@ -72,6 +75,8 @@ export function PriceRankingView({
     const q = search.trim().toLowerCase();
     return all.filter((r) => {
       if (category !== '전체' && r.crop.category !== category) return false;
+      if (sourceScope === 'curated' && r.crop.dataSourceTier !== 'curated') return false;
+      if (sourceScope === 'live' && !r.crop.inLiveGarakCatalog) return false;
       if (q) {
         const hit =
           r.crop.name.toLowerCase().includes(q) ||
@@ -90,6 +95,7 @@ export function PriceRankingView({
     uploadedOverrides,
     applyUploadedOverrides,
     category,
+    sourceScope,
     search,
   ]);
 
@@ -108,7 +114,7 @@ export function PriceRankingView({
       );
       return Array.from({ length: 52 }, (_, idx) => {
         const week = idx + 1;
-        const point: Record<string, string | number> = {
+        const point: Record<string, string | number | null> = {
           label: `${week}주`,
         };
         for (const c of comparedCrops) {
@@ -117,22 +123,24 @@ export function PriceRankingView({
             unitBasis === 'native'
               ? item?.pricePerNativeUnit ?? 0
               : item?.pricePerKg ?? 0;
-          point[c.id] = val;
+          point[c.id] = val > 0 ? val : null;
         }
         return point;
       });
     }
 
     return Array.from({ length: 12 }, (_, mIdx) => {
-      const point: Record<string, string | number> = {
+      const point: Record<string, string | number | null> = {
         label: `${mIdx + 1}월`,
       };
       for (const c of comparedCrops) {
         const kgPrice = c.monthlyPricePerKg[mIdx];
         point[c.id] =
-          unitBasis === 'native'
-            ? Math.round(kgPrice * c.standardUnitKg)
-            : kgPrice;
+          kgPrice > 0
+            ? unitBasis === 'native'
+              ? Math.round(kgPrice * c.standardUnitKg)
+              : kgPrice
+            : null;
       }
       return point;
     });
@@ -311,19 +319,42 @@ export function PriceRankingView({
             ))}
           </div>
 
-          <div className="relative w-full md:w-64">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <label htmlFor="ranking-search" className="sr-only">
-              작물 검색
-            </label>
-            <input
-              id="ranking-search"
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="품목 · 단위 검색"
-              className="w-full h-8 pl-8 pr-3 text-xs bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-md text-xs">
+              {(
+                [
+                  { key: 'all', label: '전체' },
+                  { key: 'curated', label: '정밀 기준' },
+                  { key: 'live', label: '가락 실시간' },
+                ] as const
+              ).map((s) => (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => setSourceScope(s.key)}
+                  className={`px-2 py-1 rounded font-medium whitespace-nowrap ${
+                    sourceScope === s.key ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full md:w-56">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <label htmlFor="ranking-search" className="sr-only">
+                작물 검색
+              </label>
+              <input
+                id="ranking-search"
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="품목 · 단위 검색"
+                className="w-full h-8 pl-8 pr-3 text-xs bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -451,6 +482,11 @@ export function PriceRankingView({
                         {row.hasUploadedOverride && (
                           <span className="ml-1.5 text-xs font-normal text-emerald-700">
                             · 실측
+                          </span>
+                        )}
+                        {!row.hasUploadedOverride && row.crop.dataSourceTier === 'archetype_inferred' && (
+                          <span className="ml-1.5 text-[11px] font-normal text-slate-400">
+                            · 교차모델
                           </span>
                         )}
                       </div>

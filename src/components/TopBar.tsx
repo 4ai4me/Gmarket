@@ -12,7 +12,9 @@ const BREADCRUMBS: Record<NavTab, { section: string; title: string }> = {
   overview: { section: '가락시장 분석', title: '대시보드 요약' },
   catalog: { section: '품목 탐색', title: '전체 품목 · 거래단위' },
   ranking: { section: '시세 분석', title: '년·월·주 단가 순위' },
+  supply_risk: { section: '선행 경보', title: '년간 수급 추세 · 내년 가격 리스크' },
   roi: { section: '수익성 분석', title: '재배주기 · 1년 수지타산' },
+  origin_map: { section: '지역 분석', title: '대한민국 출하지별 경매 지도' },
   excel: { section: '데이터 연동', title: '경매결과 엑셀 분석' },
 };
 

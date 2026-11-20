@@ -9,26 +9,56 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { RotateCcw } from 'lucide-react';
-import type { CropProfile, CultivationMethodKey } from '../types/garak';
+import { RotateCcw, Search } from 'lucide-react';
+import type { CropCategory, CropProfile, CultivationMethodKey } from '../types/garak';
 import {
   calculateAnnualRoi,
   getAnnualAvgPricePerKg,
   PYEONG_PER_10A,
 } from '../utils/analytics';
+import { buildCrossAnalysisMatrix } from '../utils/cropSynthesizer';
+import { MULTI_YEAR_BASELINE_BY_CROP_ID } from '../data/garakMultiYearTrends';
 import { formatKrw, formatKrwCompact } from '../utils/unitParser';
 
 interface RoiSimulatorViewProps {
   crops: CropProfile[];
+  curatedCount: number;
+  inferredLiveCount: number;
+  excelOnlyCount: number;
   selectedCropId: string;
-  onSelectCropId: (id: string) => void;
+  requestedMethodKey?: CultivationMethodKey;
+  onSelectCropId: (id: string, methodKey?: CultivationMethodKey) => void;
   uploadedOverrides: Map<string, { weightedAvgKgPrice: number; recordCount: number; totalKg: number }>;
   applyUploadedOverrides: boolean;
 }
 
+const MATRIX_CATEGORIES: Array<'전체' | CropCategory> = [
+  '전체',
+  '엽채·나물류',
+  '양채·허브류',
+  '과채류',
+  '근채류',
+  '양념채소',
+  '과실류',
+  '버섯류',
+  '두류·곡류',
+];
+
+type MatrixSortKey =
+  | 'net_profit'
+  | 'roi_pct'
+  | 'price_kg'
+  | 'price_native'
+  | 'low_capex'
+  | 'fast_payback';
+
 export function RoiSimulatorView({
   crops,
+  curatedCount,
+  inferredLiveCount,
+  excelOnlyCount,
   selectedCropId,
+  requestedMethodKey,
   onSelectCropId,
   uploadedOverrides,
   applyUploadedOverrides,
@@ -50,12 +80,22 @@ export function RoiSimulatorView({
   const [includeDepreciation, setIncludeDepreciation] = useState<boolean>(true);
   const [priceInputMode, setPriceInputMode] = useState<'kg' | 'native'>('kg');
 
-  // Sync defaults cleanly when user selects a different crop
+  // Cross-Analysis Matrix Filter & Sort State
+  const [matrixSearch, setMatrixSearch] = useState('');
+  const [matrixCategory, setMatrixCategory] = useState<'전체' | CropCategory>('전체');
+  const [matrixMethodFilter, setMatrixMethodFilter] = useState<'all' | CultivationMethodKey>('all');
+  const [matrixSourceFilter, setMatrixSourceFilter] = useState<'all' | 'curated' | 'inferred' | 'excel'>('all');
+  const [matrixSort, setMatrixSort] = useState<MatrixSortKey>('net_profit');
+  const [expandAllMethods, setExpandAllMethods] = useState<boolean>(false);
+
+  // Sync defaults cleanly when user selects a different crop (or crop + specific cultivation method)
   useEffect(() => {
-    const firstMethod = crop.methods[0];
-    setMethodKey(firstMethod.key);
-    setCyclesPerYear(firstMethod.cyclesPerYear);
-    setCommissionRatePct(firstMethod.commissionRatePct);
+    const targetMethod =
+      (requestedMethodKey && crop.methods.find((m) => m.key === requestedMethodKey)) ||
+      crop.methods[0];
+    setMethodKey(targetMethod.key);
+    setCyclesPerYear(targetMethod.cyclesPerYear);
+    setCommissionRatePct(targetMethod.commissionRatePct);
 
     const override = uploadedOverrides.get(crop.id);
     if (applyUploadedOverrides && override && override.weightedAvgKgPrice > 0) {
@@ -63,7 +103,7 @@ export function RoiSimulatorView({
     } else {
       setPricePerKg(getAnnualAvgPricePerKg(crop));
     }
-  }, [crop, uploadedOverrides, applyUploadedOverrides]);
+  }, [crop, requestedMethodKey, uploadedOverrides, applyUploadedOverrides]);
 
   const activeMethod = useMemo(
     () => crop.methods.find((m) => m.key === methodKey) || crop.methods[0],
@@ -117,39 +157,148 @@ export function RoiSimulatorView({
     ]
   );
 
-  // All crops comparison table at the user's current areaPyeong
-  const allCropBenchmark = useMemo(() => {
-    return crops
-      .map((c) => {
-        const m = c.methods[0];
-        const override = uploadedOverrides.get(c.id);
-        const p =
-          applyUploadedOverrides && override
-            ? override.weightedAvgKgPrice
-            : getAnnualAvgPricePerKg(c);
-        const sim = calculateAnnualRoi({
-          crop: c,
-          methodKey: m.key,
-          areaPyeong,
-          pricePerKg: p,
-          cyclesPerYear: m.cyclesPerYear,
-          marketableRatePct,
-          commissionRatePct: m.commissionRatePct,
-          laborCostMultiplier,
-          includeDepreciation,
-        });
-        return { crop: c, method: m, sim };
-      })
-      .sort((a, b) => b.sim.netProfit - a.sim.netProfit);
+  const stressTest = useMemo(() => {
+    const baselineTrend = MULTI_YEAR_BASELINE_BY_CROP_ID.get(crop.id);
+    const override = uploadedOverrides.get(crop.id);
+    const referencePrice =
+      applyUploadedOverrides && override && override.weightedAvgKgPrice > 0
+        ? override.weightedAvgKgPrice
+        : getAnnualAvgPricePerKg(crop);
+
+    const threeYearAvgPrice = baselineTrend
+      ? Math.round(
+          baselineTrend.history
+            .slice(-3)
+            .reduce((s, pt) => s + pt.annualAvgKgPrice, 0) /
+            Math.max(1, baselineTrend.history.slice(-3).length)
+        )
+      : Math.round(referencePrice * 0.94);
+
+    const simAt = (p: number) =>
+      calculateAnnualRoi({
+        crop,
+        methodKey: activeMethod.key,
+        areaPyeong,
+        pricePerKg: Math.max(100, Math.round(p)),
+        cyclesPerYear,
+        marketableRatePct,
+        commissionRatePct,
+        laborCostMultiplier,
+        includeDepreciation,
+      });
+
+    const threeYearSim = simAt(threeYearAvgPrice);
+    const minus15Sim = simAt(pricePerKg * 0.85);
+    const minus25Sim = simAt(pricePerKg * 0.75);
+    const safetyMarginPct =
+      pricePerKg > 0
+        ? Math.round(((pricePerKg - result.breakEvenPricePerKg) / pricePerKg) * 1000) / 10
+        : 0;
+
+    return {
+      referencePrice,
+      threeYearAvgPrice,
+      minus20Price: Math.round(referencePrice * 0.8),
+      threeYearSim,
+      minus15Sim,
+      minus25Sim,
+      safetyMarginPct,
+      earlyWarningNote: baselineTrend?.earlyWarningNote || null,
+    };
   }, [
-    crops,
+    crop,
+    activeMethod.key,
     areaPyeong,
+    pricePerKg,
+    cyclesPerYear,
     marketableRatePct,
+    commissionRatePct,
     laborCostMultiplier,
     includeDepreciation,
     uploadedOverrides,
     applyUploadedOverrides,
+    result.breakEvenPricePerKg,
   ]);
+  // Full Garak Market Cross-Analysis Matrix (ALL cultivable crops x cultivation methods x 1-year ROI)
+  const rawMatrixRows = useMemo(
+    () =>
+      buildCrossAnalysisMatrix({
+        crops,
+        areaPyeong,
+        marketableRatePct,
+        laborCostMultiplier,
+        includeDepreciation,
+        uploadedOverrides,
+        applyUploadedOverrides,
+        expandAllMethods,
+      }),
+    [
+      crops,
+      areaPyeong,
+      marketableRatePct,
+      laborCostMultiplier,
+      includeDepreciation,
+      uploadedOverrides,
+      applyUploadedOverrides,
+      expandAllMethods,
+    ]
+  );
+
+  const filteredMatrixRows = useMemo(() => {
+    const q = matrixSearch.trim().toLowerCase();
+    const filtered = rawMatrixRows.filter((row) => {
+      if (matrixCategory !== '전체' && row.crop.category !== matrixCategory) return false;
+      if (matrixMethodFilter !== 'all' && row.method.key !== matrixMethodFilter) return false;
+      if (matrixSourceFilter === 'curated' && row.crop.dataSourceTier !== 'curated') return false;
+      if (matrixSourceFilter === 'inferred' && row.crop.dataSourceTier !== 'archetype_inferred') return false;
+      if (matrixSourceFilter === 'excel' && !row.hasUploadedOverride && row.crop.dataSourceTier !== 'excel_measured') {
+        return false;
+      }
+      if (q) {
+        const hit =
+          row.crop.name.toLowerCase().includes(q) ||
+          row.method.label.toLowerCase().includes(q) ||
+          row.crop.standardUnitLabel.toLowerCase().includes(q) ||
+          row.crop.category.toLowerCase().includes(q);
+        if (!hit) return false;
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      if (matrixSort === 'net_profit') return b.sim.netProfit - a.sim.netProfit;
+      if (matrixSort === 'roi_pct') return b.sim.roiOnOperatingCostPct - a.sim.roiOnOperatingCostPct;
+      if (matrixSort === 'price_kg') return b.pricePerKg - a.pricePerKg;
+      if (matrixSort === 'price_native') return b.pricePerNativeUnit - a.pricePerNativeUnit;
+      if (matrixSort === 'low_capex') return a.sim.totalCapex - b.sim.totalCapex;
+      // fast_payback: profitable items with shortest payback first
+      const pa = a.sim.paybackYears ?? 9999;
+      const pb = b.sim.paybackYears ?? 9999;
+      return pa - pb || b.sim.netProfit - a.sim.netProfit;
+    });
+
+    return filtered;
+  }, [
+    rawMatrixRows,
+    matrixSearch,
+    matrixCategory,
+    matrixMethodFilter,
+    matrixSourceFilter,
+    matrixSort,
+  ]);
+
+  const curatedOptions = useMemo(
+    () => crops.filter((c) => c.dataSourceTier === 'curated'),
+    [crops]
+  );
+  const inferredOptions = useMemo(
+    () => crops.filter((c) => c.dataSourceTier === 'archetype_inferred'),
+    [crops]
+  );
+  const excelOptions = useMemo(
+    () => crops.filter((c) => c.dataSourceTier === 'excel_measured'),
+    [crops]
+  );
 
   const displayedPriceValue =
     priceInputMode === 'native'
@@ -173,16 +322,17 @@ export function RoiSimulatorView({
       <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-slate-900">
-            작물별 재배방법 · 재배주기 · 1년 수지타산(ROI) 시뮬레이터
+            가락시장 전 품목 재배방법 · 1년 수지타산(ROI) 교차 분석
           </h2>
           <p className="text-sm text-slate-600 mt-1">
-            재배방식, 면적, 연간 회전수, 판매단가(kg 또는 고유 거래단위)를 조정해 1년 기준 실제 수지타산과 손익분기점을 검증합니다.
+            총 <strong className="font-num text-slate-900">{crops.length}개</strong> 재배가능 품목(정밀 기준 {curatedCount} · 가락 자동매핑 {inferredLiveCount}
+            {excelOnlyCount > 0 ? ` · 엑셀 신규 ${excelOnlyCount}` : ''})의 경매단가와 재배방식을 교차 시뮬레이션합니다.
           </p>
         </div>
 
         <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
           <label htmlFor="roi-crop-select" className="text-xs font-medium text-slate-600 whitespace-nowrap">
-            분석 작물
+            분석 작물 ({crops.length})
           </label>
           <select
             id="roi-crop-select"
@@ -190,11 +340,31 @@ export function RoiSimulatorView({
             onChange={(e) => onSelectCropId(e.target.value)}
             className="h-9 px-3 text-sm font-medium bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 max-w-full"
           >
-            {crops.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.category} · {c.standardUnitLabel})
-              </option>
-            ))}
+            <optgroup label={`정밀 기준 작목 (${curatedOptions.length}종)`}>
+              {curatedOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.category} · {c.standardUnitLabel})
+                </option>
+              ))}
+            </optgroup>
+            {inferredOptions.length > 0 && (
+              <optgroup label={`가락시장 등록 교차매핑 (${inferredOptions.length}종)`}>
+                {inferredOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.category} · {c.standardUnitLabel})
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {excelOptions.length > 0 && (
+              <optgroup label={`엑셀 실측 신규 품목 (${excelOptions.length}종)`}>
+                {excelOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.category} · {c.standardUnitLabel})
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
 
           <button
@@ -220,6 +390,14 @@ export function RoiSimulatorView({
               <span>고유 거래단위: {crop.standardUnitLabel}</span>
               <span aria-hidden="true">·</span>
               <span>재배 난이도: {crop.difficulty}</span>
+              <span aria-hidden="true">·</span>
+              <span className="font-medium text-emerald-700">
+                {crop.dataSourceTier === 'excel_measured'
+                  ? '엑셀 실측 모델'
+                  : crop.dataSourceTier === 'archetype_inferred'
+                  ? '가락 등록 부류 교차모델'
+                  : '정밀 기준 DB'}
+              </span>
             </div>
             <h3 className="text-lg font-bold text-slate-900">{crop.name} 재배 특성 및 작기표</h3>
             <p className="text-xs text-slate-600 max-w-3xl leading-relaxed">
@@ -231,6 +409,12 @@ export function RoiSimulatorView({
           <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2.5 shrink-0 space-y-1">
             <div className="font-medium text-slate-800">표준 거래단위 안내</div>
             <div className="text-slate-600 max-w-xs">{crop.nativeUnitDescription}</div>
+            {crop.garakLiveUnits && crop.garakLiveUnits.length > 0 && (
+              <div className="text-[11px] font-num text-emerald-800 pt-1 border-t border-slate-200/80">
+                가락 실거래 규격: {crop.garakLiveUnits.slice(0, 6).join(' · ')}
+                {crop.garakLiveUnits.length > 6 ? ` 외 ${crop.garakLiveUnits.length - 6}종` : ''}
+              </div>
+            )}
           </div>
         </div>
 
@@ -413,6 +597,41 @@ export function RoiSimulatorView({
                   : `kg 환산: ${formatKrw(result.effectivePricePerKg)} / kg`}
               </span>
             </div>
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setPricePerKg(stressTest.referencePrice)}
+                className={`px-2.5 py-1 text-[11px] font-num rounded-md border ${
+                  pricePerKg === stressTest.referencePrice
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                올해 기준가 ({formatKrw(stressTest.referencePrice)})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPricePerKg(stressTest.threeYearAvgPrice)}
+                className={`px-2.5 py-1 text-[11px] font-num rounded-md border ${
+                  pricePerKg === stressTest.threeYearAvgPrice
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                3개년 평균가 ({formatKrw(stressTest.threeYearAvgPrice)})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPricePerKg(stressTest.minus20Price)}
+                className={`px-2.5 py-1 text-[11px] font-num rounded-md border ${
+                  pricePerKg === stressTest.minus20Price
+                    ? 'bg-amber-700 text-white border-amber-700'
+                    : 'bg-amber-50/70 text-amber-800 border-amber-200 hover:bg-amber-100'
+                }`}
+              >
+                -20% 방어가 ({formatKrw(stressTest.minus20Price)})
+              </button>
+            </div>
           </div>
 
           {/* Cycles, Marketable Rate, Commission, Labor */}
@@ -558,6 +777,91 @@ export function RoiSimulatorView({
             </div>
           </div>
 
+          {/* Cobweb Downside Price Stress Test Strip */}
+          <section
+            aria-label="내년 단가 하락 스트레스 테스트"
+            className="bg-white border border-slate-200 rounded-lg p-4 space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold text-slate-900">
+                내년 단가 변동 스트레스 테스트 (거미집 파동 대비)
+              </h3>
+              <span className="text-[11px] text-slate-500 font-num">
+                현재 설정가 {formatKrw(pricePerKg)}/kg 기준 하방 민감도
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="text-slate-500">3개년 평균 단가 ROI</div>
+                <div
+                  className={`mt-1 text-sm font-bold font-num ${
+                    stressTest.threeYearSim.netProfit >= 0 ? 'text-slate-900' : 'text-red-700'
+                  }`}
+                >
+                  {formatKrwCompact(stressTest.threeYearSim.netProfit)}
+                </div>
+                <div className="text-[11px] font-num text-slate-500">
+                  {formatKrw(stressTest.threeYearAvgPrice)}/kg 적용
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="text-slate-500">내년 -15% 하락 시</div>
+                <div
+                  className={`mt-1 text-sm font-bold font-num ${
+                    stressTest.minus15Sim.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'
+                  }`}
+                >
+                  {stressTest.minus15Sim.netProfit >= 0 ? '+' : ''}
+                  {formatKrwCompact(stressTest.minus15Sim.netProfit)}
+                </div>
+                <div className="text-[11px] font-num text-slate-500">
+                  {formatKrw(Math.round(pricePerKg * 0.85))}/kg 시나리오
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="text-slate-500">내년 -25% 급락 시</div>
+                <div
+                  className={`mt-1 text-sm font-bold font-num ${
+                    stressTest.minus25Sim.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'
+                  }`}
+                >
+                  {stressTest.minus25Sim.netProfit >= 0 ? '+' : ''}
+                  {formatKrwCompact(stressTest.minus25Sim.netProfit)}
+                </div>
+                <div className="text-[11px] font-num text-slate-500">
+                  {formatKrw(Math.round(pricePerKg * 0.75))}/kg 시나리오
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-lg p-3">
+                <div className="text-slate-500">손익분기 안전마진</div>
+                <div
+                  className={`mt-1 text-sm font-bold font-num whitespace-nowrap ${
+                    stressTest.safetyMarginPct >= 25
+                      ? 'text-emerald-700'
+                      : stressTest.safetyMarginPct >= 15
+                        ? 'text-amber-700'
+                        : 'text-red-700'
+                  }`}
+                >
+                  -{stressTest.safetyMarginPct}%까지 흑자
+                </div>
+                <div className="text-[11px] font-num text-slate-500 whitespace-nowrap">
+                  손익분기 {formatKrw(result.breakEvenPricePerKg)}/kg
+                </div>
+              </div>
+            </div>
+
+            {stressTest.earlyWarningNote && (
+              <p className="text-xs text-slate-600 pt-1 border-t border-slate-100">
+                <strong className="text-slate-800">5개년 수급 참고:</strong> {stressTest.earlyWarningNote}
+              </p>
+            )}
+          </section>
+
           {/* Cost Breakdown Table */}
           <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
@@ -691,86 +995,232 @@ export function RoiSimulatorView({
         </div>
       </div>
 
-      {/* All-Crop 1-Year Profitability Comparison Matrix */}
+      {/* Full Garak Market All-Item x Cultivation Method x 1-Year ROI Cross-Analysis Matrix */}
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">
-              동일 면적 ({areaPyeong.toLocaleString('ko-KR')}평) 전 작물 1년 수지타산 비교
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              각 작물의 대표 재배방식 기준. 행을 클릭하면 상단 시뮬레이터에 즉시 불러옵니다.
-            </p>
+        <div className="px-5 py-4 border-b border-slate-200 space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">
+                가락시장 전 품목 × 재배방식 × 1년 수지타산 교차분석 매트릭스 ({areaPyeong.toLocaleString('ko-KR')}평 기준)
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                가락시장 등록 재배가능 농산물 전체의 경매단가와 재배방식을 교차 분석합니다. 행을 클릭하면 해당 작물·방식이 상단 시뮬레이터에 즉시 반영됩니다.
+              </p>
+            </div>
+
+            <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200 self-start lg:self-auto shrink-0">
+              <button
+                type="button"
+                onClick={() => setExpandAllMethods(false)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                  !expandAllMethods
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                품목별 최적 방식 ({crops.length}행)
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpandAllMethods(true)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                  expandAllMethods
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                전 품목 × 전 재배방식 교차
+              </button>
+            </div>
           </div>
-          <span className="text-xs text-slate-500 font-num">
-            상품화율 {marketableRatePct}% · 인건비 {laborCostMultiplier}x · 감가상각{' '}
-            {includeDepreciation ? '포함' : '제외'}
-          </span>
+
+          {/* Matrix Filter Controls */}
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pt-2 border-t border-slate-100">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full sm:w-56">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <label htmlFor="matrix-search" className="sr-only">
+                  교차분석 품목·재배방식 검색
+                </label>
+                <input
+                  id="matrix-search"
+                  type="text"
+                  value={matrixSearch}
+                  onChange={(e) => setMatrixSearch(e.target.value)}
+                  placeholder="품목명 · 재배방식 검색"
+                  className="w-full h-8 pl-8 pr-3 text-xs bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                />
+              </div>
+
+              <label htmlFor="matrix-method-filter" className="sr-only">
+                재배방식 필터
+              </label>
+              <select
+                id="matrix-method-filter"
+                value={matrixMethodFilter}
+                onChange={(e) => setMatrixMethodFilter(e.target.value as 'all' | CultivationMethodKey)}
+                className="h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-md text-slate-700"
+              >
+                <option value="all">재배방식: 전체</option>
+                <option value="open_field">노지 재배</option>
+                <option value="unheated_house">무가온·비가림 하우스</option>
+                <option value="heated_house">가온 시설하우스</option>
+                <option value="smart_farm">스마트팜·공조</option>
+              </select>
+
+              <label htmlFor="matrix-source-filter" className="sr-only">
+                데이터 구분 필터
+              </label>
+              <select
+                id="matrix-source-filter"
+                value={matrixSourceFilter}
+                onChange={(e) =>
+                  setMatrixSourceFilter(e.target.value as 'all' | 'curated' | 'inferred' | 'excel')
+                }
+                className="h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-md text-slate-700"
+              >
+                <option value="all">데이터: 전체 ({crops.length}품목)</option>
+                <option value="curated">정밀 기준 DB ({curatedCount}품목)</option>
+                <option value="inferred">가락 자동매핑 ({inferredLiveCount}품목)</option>
+                <option value="excel">엑셀 실측 반영만</option>
+              </select>
+
+              <label htmlFor="matrix-sort" className="sr-only">
+                정렬 기준
+              </label>
+              <select
+                id="matrix-sort"
+                value={matrixSort}
+                onChange={(e) => setMatrixSort(e.target.value as MatrixSortKey)}
+                className="h-8 px-2.5 text-xs font-medium bg-white border border-slate-300 rounded-md text-slate-900"
+              >
+                <option value="net_profit">정렬: 1년 순수익 높은 순</option>
+                <option value="roi_pct">정렬: 경영비 ROI 높은 순</option>
+                <option value="price_kg">정렬: kg당 단가 높은 순</option>
+                <option value="price_native">정렬: 고유단위 단가 높은 순</option>
+                <option value="low_capex">정렬: 초기 시설비 낮은 순</option>
+                <option value="fast_payback">정렬: 투자회수 빠른 순</option>
+              </select>
+            </div>
+
+            <span className="text-xs text-slate-500 font-num whitespace-nowrap">
+              표시 <strong className="text-slate-900">{filteredMatrixRows.length}</strong>건 · 상품화율 {marketableRatePct}% · 인건비 {laborCostMultiplier}x · 감가상각 {includeDepreciation ? '포함' : '제외'}
+            </span>
+          </div>
+
+          {/* Category Filter Bar */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {MATRIX_CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setMatrixCategory(cat)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                  matrixCategory === cat
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[640px] overflow-y-auto">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
                 <th className="py-2.5 px-4 text-left font-medium">순위 · 품목</th>
-                <th className="py-2.5 px-3 text-left font-medium">대표 재배방식</th>
-                <th className="py-2.5 px-3 text-right font-medium">연 회전</th>
+                <th className="py-2.5 px-3 text-left font-medium">재배방식 · 회전</th>
+                <th className="py-2.5 px-3 text-right font-medium">kg당 단가</th>
                 <th className="py-2.5 px-3 text-right font-medium">초기 시설비</th>
                 <th className="py-2.5 px-3 text-right font-medium">1년 매출</th>
                 <th className="py-2.5 px-3 text-right font-medium">1년 순수익</th>
+                <th className="py-2.5 px-3 text-right font-medium">ROI</th>
                 <th className="py-2.5 px-3 text-right font-medium">손익분기/kg</th>
                 <th className="py-2.5 px-4 text-right font-medium">회수기간</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {allCropBenchmark.map((row, idx) => {
-                const isSelected = row.crop.id === crop.id;
-                return (
-                  <tr
-                    key={row.crop.id}
-                    className={`transition-colors ${
-                      isSelected ? 'bg-emerald-50/70' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    <td className="py-2.5 px-4 whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => onSelectCropId(row.crop.id)}
-                        className="text-left font-medium text-slate-900 hover:text-emerald-700"
-                      >
-                        <span className="font-num text-slate-400 mr-2">{idx + 1}.</span>
-                        {row.crop.name}
-                      </button>
-                      <span className="ml-2 text-xs text-slate-400">{row.crop.difficulty}</span>
-                    </td>
-                    <td className="py-2.5 px-3 text-xs text-slate-600 truncate max-w-[200px]">
-                      {row.method.label}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-num text-xs text-slate-600 whitespace-nowrap">
-                      {row.method.cyclesPerYear}기작
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-num text-xs text-slate-600 whitespace-nowrap">
-                      {formatKrwCompact(row.sim.totalCapex)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-num text-slate-700 whitespace-nowrap">
-                      {formatKrwCompact(row.sim.grossRevenue)}
-                    </td>
-                    <td
-                      className={`py-2.5 px-3 text-right font-num font-semibold whitespace-nowrap ${
-                        row.sim.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'
+              {filteredMatrixRows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-10 px-4 text-center text-xs text-slate-500">
+                    현재 필터 조건에 맞는 교차분석 항목이 없습니다. 재배방식 또는 검색어를 조정해 보세요.
+                  </td>
+                </tr>
+              ) : (
+                filteredMatrixRows.map((row, idx) => {
+                  const isSelected =
+                    row.crop.id === crop.id && row.method.key === activeMethod.key;
+                  return (
+                    <tr
+                      key={row.rowKey}
+                      className={`transition-colors ${
+                        isSelected ? 'bg-emerald-50/80' : 'hover:bg-slate-50'
                       }`}
                     >
-                      {formatKrwCompact(row.sim.netProfit)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-num text-xs text-slate-600 whitespace-nowrap">
-                      {formatKrw(row.sim.breakEvenPricePerKg)}
-                    </td>
-                    <td className="py-2.5 px-4 text-right font-num text-xs text-slate-600 whitespace-nowrap">
-                      {row.sim.paybackYears !== null ? `${row.sim.paybackYears}년` : '-'}
-                    </td>
-                  </tr>
-                );
-              })}
+                      <td className="py-2.5 px-4 whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectCropId(row.crop.id, row.method.key);
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          className="text-left font-medium text-slate-900 hover:text-emerald-700"
+                        >
+                          <span className="font-num text-slate-400 mr-2">{idx + 1}.</span>
+                          {row.crop.name}
+                        </button>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          {row.crop.category} · {row.crop.standardUnitLabel}
+                          {row.hasUploadedOverride && (
+                            <span className="text-emerald-700 font-medium"> · 실측</span>
+                          )}
+                          {!row.hasUploadedOverride &&
+                            row.crop.dataSourceTier === 'archetype_inferred' && (
+                              <span className="text-slate-400"> · 교차모델</span>
+                            )}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-xs text-slate-700 whitespace-nowrap">
+                        <div className="truncate max-w-[190px]">{row.method.label}</div>
+                        <div className="text-[11px] text-slate-400 font-num">
+                          연 {row.method.cyclesPerYear}기작 · {row.method.cycleDays}일
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-num text-xs text-slate-700 whitespace-nowrap">
+                        <div>{formatKrw(row.pricePerKg)}</div>
+                        <div className="text-[11px] text-slate-400">
+                          단위 {formatKrw(row.pricePerNativeUnit)}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-num text-xs text-slate-600 whitespace-nowrap">
+                        {formatKrwCompact(row.sim.totalCapex)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-num text-slate-700 whitespace-nowrap">
+                        {formatKrwCompact(row.sim.grossRevenue)}
+                      </td>
+                      <td
+                        className={`py-2.5 px-3 text-right font-num font-semibold whitespace-nowrap ${
+                          row.sim.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'
+                        }`}
+                      >
+                        {formatKrwCompact(row.sim.netProfit)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-num text-xs text-slate-700 whitespace-nowrap">
+                        {row.sim.roiOnOperatingCostPct}%
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-num text-xs text-slate-600 whitespace-nowrap">
+                        {formatKrw(row.sim.breakEvenPricePerKg)}
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-num text-xs text-slate-600 whitespace-nowrap">
+                        {row.sim.paybackYears !== null ? `${row.sim.paybackYears}년` : '-'}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
