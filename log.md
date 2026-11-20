@@ -102,3 +102,30 @@
 - 확인하지 못한 것 / 사용자 확인 필요: 사용자가 보유한 실제 가락시장 OZViewer `.xls` 파일을 `내 엑셀(.xls) 올리기`로 업로드했을 때의 실측 출하지 매핑 확인 및 `4ai4me/Gmarket` 원격 저장소 푸시
 - 남은 이슈: 없음
 
+## [v0.4.0] 2026-11-20 — 년간 경매 물량·5개년 수급 추세 · 내년 가격 리스크 경보 · 산지 YoY 증감 · 다기간 엑셀 누적 비교
+
+### 시작 전
+- Tier: 2 (신규 수급·거미집 리스크 분석 탭 + 지도 YoY 산지 증감·편중도 + ROI 하방 스트레스 테스트 + 다기간 엑셀 누적 저장/비교)
+- 요청 내용: 년간 가락시장 경매 물량 파악, 지역별 증가/감소 작물 검토, 올해 고단가→내년 단가 하락(거미집 파동)에 선제 대응할 수 있는 데이터 기반 보완 사항 검토 및 기능 개선.
+- 영향 범위 판단: 신규 모듈 `src/data/garakMultiYearTrends.ts`, `src/utils/supplyRisk.ts`, `src/components/SupplyRiskView.tsx`, 기존 모듈 확장(`src/types/garak.ts`, `src/data/originAuctionBaseline.ts`, `src/utils/koreaOrigin.ts`, `src/components/KoreaOriginMapSvg.tsx`, `src/components/OriginMapView.tsx`, `src/components/RoiSimulatorView.tsx`, `src/components/ExcelAnalyzerView.tsx`, `src/components/OverviewView.tsx`, `src/components/Sidebar.tsx`, `src/components/TopBar.tsx`, `src/App.tsx`, `src/utils/analytics.test.ts`, `VERSION`, `README.md`, `log.md`).
+- 회귀 위험 검토: 기존 6개 탭과 단일일 엑셀 업로드, 전국 17개 시·도 지도 필터링, 12개월 통합 품목 조회(`all_year`) 및 1년 수지타산 계산을 유지하면서, 음수/null이 포함되는 `yoyVolumeChangePct` 지도 지표와 `localStorage` 파싱 예외를 안전하게 처리해야 함.
+- 검증 계획:
+  1. 단위 테스트 17건 (`analytics.test.ts`: 기존 14건 회귀 + `classifyCobwebSignal`, `evaluateCropSupplyRiskMatrix` 5개년/다년도 엑셀 오버라이드, `buildUploadedMultiPeriodComparison` 및 지역 YoY 집계)
+  2. `tsc --noEmit` 및 `vite build`
+  3. Playwright 실브라우저 검증 (`1440×900`): `대시보드 요약(v0.4.0)`, `수급 추세 · 리스크` 탭(5개년 복합차트·신호 필터·하방방어 ROI), `출하지 현황 지도`(`전년대비 산지 증감(%)`·상위 2도 편중도·시군구 YoY), `재배 · 1년 수지타산`(-20% 방어가 프리셋·스트레스 테스트), `경매결과 엑셀 분석`(다기간 2024·2025·2026 비교 샘플 및 기간별 물량·단가·산지 변화) 검증 및 결함 수정
+
+### 완료 후
+- 변경 파일: `VERSION`, `src/types/garak.ts`, `src/data/garakMultiYearTrends.ts`, `src/data/originAuctionBaseline.ts`, `src/utils/supplyRisk.ts`, `src/utils/koreaOrigin.ts`, `src/components/SupplyRiskView.tsx`, `src/components/KoreaOriginMapSvg.tsx`, `src/components/OriginMapView.tsx`, `src/components/RoiSimulatorView.tsx`, `src/components/ExcelAnalyzerView.tsx`, `src/components/OverviewView.tsx`, `src/components/Sidebar.tsx`, `src/components/TopBar.tsx`, `src/App.tsx`, `src/utils/analytics.test.ts`, `README.md`, `log.md`
+- 완료 기준(DoD) 확인 결과:
+  - 단위 테스트 17/17 통과 (`npx tsx --test src/utils/analytics.test.ts`)
+  - `tsc --noEmit` 오류 0건 및 `vite build` 프로덕션 빌드 성공
+  - Playwright 실브라우저(`1440×900`) 전 기능 검증 및 1차 UI 결함 4건 수정 완료:
+    - `OriginMapView`: `전년대비 산지 증감(%)` 전환 시에도 4번 KPI 카드(`최다 출하 · 주산지 편중도`)가 항상 중량 1위 지역과 상위 2도 비중을 일관 표시하도록 분리
+    - `RoiSimulatorView`: `손익분기 안전마진` 카드 텍스트(`-7.7%까지 흑자`) 1줄 고정으로 줄바꿈 깨짐 해소
+    - `SupplyRiskView`: 기본 10a 면적 표기(`302.5평` → `10a·300평`) 통일 및 `10a(300평)` 버튼 초기 활성 상태 정렬
+    - 브라우저 콘솔 오류 0건, 경고 0건
+- 실제로 확인한 것: 단위 테스트 17건, `tsc --noEmit`, `vite build`, `http://localhost:3000` 실브라우저 5개 주요 화면(`Overview`, `SupplyRiskView`, `OriginMapView YoY`, `RoiSimulatorView Stress Test`, `ExcelAnalyzerView Multi-Period`) 인터랙션 및 렌더링
+- 확인하지 못한 것 / 사용자 확인 필요: 사용자가 보유한 실제 다년도 가락시장 OZViewer `.xls` 파일 누적 업로드 테스트 및 `4ai4me/Gmarket` 원격 GitHub 저장소 푸시
+- 남은 이슈: 없음
+
+

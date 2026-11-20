@@ -96,7 +96,6 @@ export function OriginMapView({
       });
   }, [agg.provinces, mapMetric]);
 
-  const topProvince = rankedProvinces[0] || null;
   const topKgProvince = useMemo(() => {
     return (
       agg.provinces

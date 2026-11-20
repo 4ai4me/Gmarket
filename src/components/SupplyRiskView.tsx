@@ -245,18 +245,22 @@ export function SupplyRiskView({
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
-            {[300, 600, 1000].map((py) => (
+            {[
+              { val: PYEONG_PER_10A, label: '10a(300평)' },
+              { val: 600, label: '600평' },
+              { val: 1000, label: '1,000평' },
+            ].map((opt) => (
               <button
-                key={py}
+                key={opt.val}
                 type="button"
-                onClick={() => setAreaPyeong(py)}
+                onClick={() => setAreaPyeong(opt.val)}
                 className={`px-2.5 py-1.5 text-xs font-num font-medium rounded-md transition-colors whitespace-nowrap ${
-                  areaPyeong === py
+                  areaPyeong === opt.val
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {py === 300 ? '300평(10a)' : `${py.toLocaleString('ko-KR')}평`}
+                {opt.label}
               </button>
             ))}
           </div>
