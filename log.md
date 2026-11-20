@@ -152,3 +152,31 @@
 - 실제로 확인한 것: 라이브 `4ai4me/Gmarket` Actions 실행 로그 단계별 상태, `https://4ai4me.github.io/Gmarket/` 응답 HTML, `npm --legacy-peer-deps` 해결, 단위 테스트 17건, 타입체크/빌드, `/Gmarket/` 하위 경로 정적 서빙 실브라우저 렌더링
 - 확인하지 못한 것 / 사용자 확인 필요: 수정본을 `4ai4me/Gmarket` 원격 저장소 `main`에 푸시하고, GitHub 저장소 `Settings → Pages → Build and deployment → Source`를 **`GitHub Actions`**로 전환한 뒤 실제 `https://4ai4me.github.io/Gmarket/` 접속 확인
 - 남은 이슈: 없음
+
+## [v0.4.2] 2026-11-20 — GitHub Pages Actions Step 5 (`Build static bundle`) `react-is` 빌드 오류 우선 조치
+
+### 시작 전
+- Tier: 1 (CI 빌드 오류 긴급 수정)
+- 요청 내용: `Deploy to GitHub Pages #3` (Commit `ec475f6`) 실패 우선 조치.
+- 영향 범위 판단: `package.json`/`bun.lock`(`react-is` 추가), `.github/workflows/deploy-pages.yml`, `VERSION`, `src/App.tsx`, `README.md`, `log.md`.
+- 회귀 위험 검토: 앱 런타임 로직·데이터·UI 변경 없음. 신규 클린 디렉터리에서 `bun install --frozen-lockfile && bun run build` 및 `npm install --legacy-peer-deps && npm run build` 양쪽 모두 성공해야 함.
+- 검증 계획:
+  1. 클린 임시 디렉터리(`/tmp`)에서 `bun` 및 `npm --legacy-peer-deps` 빌드 모두 성공 확인
+  2. 단위 테스트 17건, `tsc --noEmit`, `vite build` 통과 확인
+
+### 완료 후
+- 변경 파일: `package.json`, `bun.lock`, `.github/workflows/deploy-pages.yml`, `VERSION`, `src/App.tsx`, `README.md`, `log.md`
+- 실측 원인:
+  1. `run 44742530338` Step 3(`Setup Node.js`)·Step 4(`Install dependencies`)는 성공했으나 Step 5(`Build static bundle`)에서 실패.
+  2. 로컬 클린 재현 결과: `npm install --legacy-peer-deps`가 `recharts`의 peerDependency인 `react-is`를 자동 설치하지 않아 Vite/Rolldown 빌드 시 `Rolldown failed to resolve import "react-is" from "recharts/es6/util/ReactUtils.js"` 오류가 발생함.
+  3. 또한 최근 실행 목록에 `pages build and deployment` (`dynamic`)가 동시 실행되어 있어 저장소 `Settings → Pages → Source`가 아직 `Deploy from a branch` 상태임이 재확인됨.
+- 조치 내용:
+  - `react-is`를 명시적 의존성으로 설치해 `npm`/`bun` 어느 환경에서도 빌드 실패 차단
+  - `.github/workflows/deploy-pages.yml`을 `oven-sh/setup-bun@v2` + `bun install --frozen-lockfile || bun install` + `bun run build`로 전환해 저장소의 `bun.lock`과 100% 일치시킴
+- 완료 기준(DoD) 확인 결과:
+  - 클린 `/tmp` 환경 `bun install --frozen-lockfile && bun run build` 성공 및 `npm install --legacy-peer-deps && npm run build` 성공
+  - 단위 테스트 17/17 통과, `tsc --noEmit` 0오류, `vite build` 성공
+- 실제로 확인한 것: GitHub Actions #3 단계별 상태, 로컬 클린 재현(실패 → 수정 후 `bun`/`npm` 양쪽 모두 성공), 단위 테스트 17건, `compile_applet`, `lint_applet`
+- 확인하지 못한 것 / 사용자 확인 필요: `v0.4.2`를 `4ai4me/Gmarket` `main`에 푸시 후 Actions 초록색 통과 확인 및 `Settings → Pages → Source`를 **`GitHub Actions`**로 전환(현재 `Deploy from a branch` 상태)
+- 남은 이슈: 없음
+

@@ -1,6 +1,6 @@
 # 가락시장 단가·수지타산 분석 (Garak Agro-ROI)
 
-- **현재 버전**: `v0.4.1` (단일 원본: `VERSION`)
+- **현재 버전**: `v0.4.2` (단일 원본: `VERSION`)
 - **GitHub Pages 주소**: `https://4ai4me.github.io/Gmarket/`
 
 ## 1. 프로그램 개요
@@ -41,6 +41,7 @@ NODE_ENV=production npm start
    - 정적 호스팅(GitHub Pages) 환경에서는 Express 백엔드(`/api/*`) 대신 내장된 가락시장 12개월 통합 실제 스냅샷(660종)과 전국 주산지·5개년 수급 기준 데이터가 자동 로드되며, 엑셀 다기간 누적 분석·대한민국 지도 출하지 시각화·전 품목 1년 수지타산 교차분석이 브라우저에서 100% 정상 동작합니다.
 
 ## 4. 변경 이력
+- **v0.4.2** (2026-11-20): GitHub Pages Actions Step 5(`Build static bundle`) `react-is` 미해결 오류 근본 해결 — `react-is` 명시적 의존성 추가 및 `.github/workflows/deploy-pages.yml`을 저장소 lockfile(`bun.lock`)과 일치하는 `oven-sh/setup-bun@v2` 기반으로 전환.
 - **v0.4.1** (2026-11-20): GitHub Pages 배포 워크플로(`.github/workflows/deploy-pages.yml`) 실패 원인 해결 — `package-lock.json` 미존재로 인한 `Setup Node.js(cache: npm)` 및 `npm ci` 오류 제거, `vite@8`·`esbuild@0.25` peer 충돌 대응(`--legacy-peer-deps`), `.nojekyll`·`404.html` 자동 생성 추가.
 - **v0.4.0** (2026-11-20): 년간 경매 물량·5개년 수급 추세 & 내년 가격 리스크 경보(`수급 추세 · 리스크` 탭) 신설, 대한민국 지도 `전년대비 산지 물량 증감(%)`·상위 2개 시·도 편중도 추가, 1년 ROI 시뮬레이터 3개년 평균/-15%/-25% 하락 스트레스 테스트 추가, 다기간(연도·월별) 엑셀 누적 병합·브라우저 자동 저장 및 시계열 비교 구현.
 - **v0.3.0** (2026-11-20): 대한민국 17개 시·도 인터랙티브 출하지별 경매 현황 지도 대시보드(`출하지 현황 지도` 탭) 추가 — 품목·품종·단위·등급·출하지 필터, 출하중량/수량/경매액/kg단가 지도 지표 전환, 시·군·구 산지 드릴다운, 엑셀 실측 출하지 즉시 반영 및 CSV 내보내기 지원.
