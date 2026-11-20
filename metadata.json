@@ -1,0 +1,6 @@
+{
+  "name": "가락시장 단가·수지타산 분석",
+  "description": "가락시장 전체 품목 및 거래단위(kg·고유단위) 경매 단가 비교, 엑셀 경매결과 분석, 작물별 재배주기 및 1년 수지타산(ROI) 시뮬레이터",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

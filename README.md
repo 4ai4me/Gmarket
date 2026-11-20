@@ -1,11 +1,34 @@
-<div align="center">
+# 가락시장 단가·수지타산 분석 (Garak Agro-ROI)
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+- **현재 버전**: `v0.0.1` (단일 원본: `VERSION`)
 
-  <h1>Built with AI Studio</h2>
+## 1. 프로그램 개요
+서울 가락농수산물도매시장(`temp.garak.co.kr`)의 거래 품목·포장단위 정보와 경매결과 엑셀(`.xls`/`.xlsx`/`.csv`) 데이터를 기반으로 다음 3가지 의사결정을 지원하는 웹 분석 도구입니다.
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+1. **전체 품목 · 거래단위 실시간 조회**: 가락시장 `selectAutoCompleteAjax.do`를 서버 프록시(`/api/garak/items`)로 호출하여 지정 일자 기준 전체 경매 품목과 포장단위(`kg`, `g`, `상자`, `단`, `망` 등)를 조회합니다.
+2. **년 · 월 · 주 기준 고단가 품목 비교 (kg당 + 작물 고유 단위 확장)**: `원/kg` 기준뿐만 아니라 각 농작물 고유의 거래단위(`10kg 상자`, `2kg 상자`, `100속`, `1단`, `3포기망` 등) 및 `10a당 연 예상매출` 기준으로 순위와 계절별 추이를 비교합니다.
+3. **재배방법 · 재배주기 · 1년 수지타산(ROI) 시뮬레이션**: 주요 24개 작물의 재배방식(노지/무가온·가온 하우스/스마트팜), 재배기간, 연간 회전수(기작), 12개월 파종·수확·고단가 성수기 캘린더, 면적·단가·경영비·감가상각·상장수수료를 반영한 1년 순수익과 손익분기 단가를 계산합니다.
+4. **가락시장 엑셀(.xls/.xlsx/.csv) 직접 파싱**: 가락시장 OZViewer에서 내려받은 `경매 결과(가락시장)` 및 `품목별 가격` 엑셀 파일을 자동 파싱하여 수량 가중평균 단가를 산출하고 순위·ROI 시뮬레이터에 즉시 반영합니다.
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+## 2. 실행 및 빌드 방법
 
-</div>
+```bash
+# 의존성 설치
+npm install
+
+# 개발 서버 실행 (포트 3000)
+npm run dev
+
+# 단위 테스트 실행 (단위 환산 · 엑셀 파서 · ROI 계산)
+npm test
+
+# 타입 검사 및 프로덕션 빌드
+npm run lint
+npm run build
+
+# 프로덕션 서버 실행
+NODE_ENV=production npm start
+```
+
+## 3. 변경 이력
+- **v0.0.1** (2026-11-20): 초기 버전 구축 — 가락시장 실시간 품목·단위 프록시 API, 경매결과/품목별 가격 엑셀 파서, 년·월·주 kg·고유단위 단가 순위, 1년 재배주기·ROI 시뮬레이터 및 단위 테스트 구현.
