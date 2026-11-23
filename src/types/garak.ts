@@ -94,6 +94,41 @@ export interface GarakLiveResponse {
   items: GarakLiveItem[];
 }
 
+export interface Garak10YrYearSummary {
+  year: number;
+  uniqueItemCount: number;
+  sampledMonths: number;
+  totalRawOptions: number;
+}
+
+export interface Garak10YrCatalogItem {
+  itemName: string;
+  category: string;
+  units: string[];
+  sourceModes: ('auction' | 'summary')[];
+  firstYear: number;
+  lastYear: number;
+  activeYearsCount: number;
+  totalActiveMonthSlots: number;
+  yearlyActiveMonths: number[];
+  monthlyPresence10Yr: number[];
+  peakMonths: number[];
+  gapMonths: number[];
+  presenceTrendDelta: number;
+}
+
+export interface Garak10YrCatalogPayload {
+  source: string;
+  crawledAt: string;
+  periodStart: string;
+  periodEnd: string;
+  years: number[];
+  totalSampledMonths: number;
+  totalUniqueItems: number;
+  yearlySummary: Garak10YrYearSummary[];
+  items: Garak10YrCatalogItem[];
+}
+
 export interface AuctionRecord {
   id: string;
   date: string;
@@ -113,6 +148,10 @@ export interface AuctionRecord {
   sourceFormat: 'auction_result' | 'item_summary';
   /** Optional prior-year shipment weight (kg) for regional growth/decline comparison */
   prevYearKg?: number;
+  /** Optional 12-month relative shipment weights (Jan=0..Dec=11) for regional timing & gap analysis */
+  monthlyVolumeWeights?: number[];
+  /** Optional short Korean label for this region's typical shipment window (e.g. '고랭지 7~9월') */
+  shipmentWindowLabel?: string;
 }
 
 export interface ExcelParseResult {

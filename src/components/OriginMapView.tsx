@@ -1,20 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Calculator,
+  CalendarRange,
   Download,
   RotateCcw,
   Search,
+  Sparkles,
 } from 'lucide-react';
 import type { AuctionRecord, CropProfile } from '../types/garak';
 import { NATIONWIDE_ORIGIN_BASELINE_RECORDS } from '../data/originAuctionBaseline';
 import {
   aggregateAuctionByRegion,
+  buildRegionalShipmentSchedule,
+  getMonthsInRange,
   type KoreaProvinceId,
 } from '../utils/koreaOrigin';
 import { matchAuctionRecordToCrop } from '../utils/analytics';
 import { exportAuctionRecordsToCsv } from '../utils/excelParser';
 import { formatKrw, formatKrwCompact } from '../utils/unitParser';
 import { KoreaOriginMapSvg, type MapMetricKey } from './KoreaOriginMapSvg';
+import { RegionalTimingPanel } from './RegionalTimingPanel';
 
 interface OriginMapViewProps {
   uploadedRecords: AuctionRecord[];
@@ -53,9 +58,25 @@ export function OriginMapView({
   const [selectedGrade, setSelectedGrade] = useState<string>('전체');
   const [selectedUnit, setSelectedUnit] = useState<string>('전체');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [startMonth, setStartMonth] = useState<number>(1);
+  const [endMonth, setEndMonth] = useState<number>(12);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const [mapMetric, setMapMetric] = useState<MapMetricKey>('totalKg');
   const [selectedProvinceId, setSelectedProvinceId] = useState<KoreaProvinceId | null>(null);
   const [sortBy, setSortBy] = useState<TableSortKey>('amount');
+
+  const selectedMonths = useMemo(
+    () => getMonthsInRange(startMonth, endMonth),
+    [startMonth, endMonth]
+  );
+  const selectedMonthsSet = useMemo(() => new Set(selectedMonths), [selectedMonths]);
+  const isFullYearMonths = startMonth === 1 && endMonth === 12;
+  const periodLabel = isFullYearMonths
+    ? '연간 전체(1~12월)'
+    : startMonth === endMonth
+      ? `${startMonth}월`
+      : `${startMonth}~${endMonth}월 (${selectedMonths.length}개월)`;
 
   useEffect(() => {
     if (!initialItemFilter) return;
@@ -81,8 +102,48 @@ export function OriginMapView({
         grade: selectedGrade,
         unitRaw: selectedUnit,
         search: searchQuery,
+        startMonth,
+        endMonth,
+        startDate: usingUploaded ? startDate : undefined,
+        endDate: usingUploaded ? endDate : undefined,
       }),
-    [activeRecords, selectedItem, selectedVariety, selectedGrade, selectedUnit, searchQuery]
+    [
+      activeRecords,
+      selectedItem,
+      selectedVariety,
+      selectedGrade,
+      selectedUnit,
+      searchQuery,
+      startMonth,
+      endMonth,
+      usingUploaded,
+      startDate,
+      endDate,
+    ]
+  );
+
+  const schedule = useMemo(
+    () =>
+      buildRegionalShipmentSchedule(activeRecords, {
+        item: selectedItem,
+        variety: selectedVariety,
+        grade: selectedGrade,
+        unitRaw: selectedUnit,
+        search: searchQuery,
+        startDate: usingUploaded ? startDate : undefined,
+        endDate: usingUploaded ? endDate : undefined,
+      }),
+    [
+      activeRecords,
+      selectedItem,
+      selectedVariety,
+      selectedGrade,
+      selectedUnit,
+      searchQuery,
+      usingUploaded,
+      startDate,
+      endDate,
+    ]
   );
 
   const rankedProvinces = useMemo(() => {
@@ -125,7 +186,16 @@ export function OriginMapView({
     setSelectedGrade('전체');
     setSelectedUnit('전체');
     setSearchQuery('');
+    setStartMonth(1);
+    setEndMonth(12);
+    setStartDate('');
+    setEndDate('');
     setSelectedProvinceId(null);
+  };
+
+  const handleSelectMonthRange = (s: number, e: number) => {
+    setStartMonth(s);
+    setEndMonth(e);
   };
 
   const handleDownloadCsv = () => {
@@ -137,7 +207,7 @@ export function OriginMapView({
     a.href = url;
     a.download = `garak_origin_${selectedItem === '전체' ? 'all' : selectedItem}_${
       selectedProvince ? selectedProvince.provinceName : 'korea'
-    }.csv`;
+    }_${startMonth}to${endMonth}m.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -148,7 +218,15 @@ export function OriginMapView({
     selectedGrade !== '전체' ||
     selectedUnit !== '전체' ||
     Boolean(searchQuery.trim()) ||
+    !isFullYearMonths ||
+    Boolean(startDate) ||
+    Boolean(endDate) ||
     selectedProvinceId !== null;
+
+  const maxMonthlyShare = Math.max(
+    1,
+    ...schedule.monthlyNationwide.map((m) => m.sharePct)
+  );
 
   return (
     <div className="space-y-6">
@@ -156,10 +234,10 @@ export function OriginMapView({
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">
-            대한민국 출하지별 경매 현황 지도
+            대한민국 출하지별 경매 현황 · 출하 시점 비교 지도
           </h2>
           <p className="text-sm text-slate-600 mt-1">
-            품목·품종·단위·등급별로 어느 지역(시·도 / 시·군·구) 상품이 얼마나 경매되고 단가가 형성되는지 지도에서 교차 확인합니다.
+            원하는 기간(월별·계절·일자)을 설정해 어느 지역에서 물량이 출하되는지 지도에서 확인하고, 타지역 출하가 끊기는 공백기(틈새 수확) 패턴을 파악합니다.
           </p>
         </div>
 
@@ -325,6 +403,180 @@ export function OriginMapView({
           </div>
         </div>
 
+        {/* Period Setting & Clickable 1~12월 Timeline Strip */}
+        <div className="pt-3 border-t border-slate-100 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                <CalendarRange className="w-3.5 h-3.5 text-emerald-700" />
+                <span>기간 설정</span>
+              </span>
+
+              <div className="inline-flex flex-wrap items-center p-0.5 bg-slate-100 rounded-lg">
+                {(
+                  [
+                    [1, 12, '연간 전체'],
+                    [3, 5, '봄 (3~5월)'],
+                    [6, 8, '여름 (6~8월)'],
+                    [9, 11, '가을 (9~11월)'],
+                    [12, 2, '겨울 (12~2월)'],
+                  ] as Array<[number, number, string]>
+                ).map(([s, e, label]) => {
+                  const active = startMonth === s && endMonth === e;
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => handleSelectMonthRange(s, e)}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                        active
+                          ? 'bg-emerald-700 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {schedule.gapWindows.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleSelectMonthRange(
+                      schedule.gapWindows[0].startMonth,
+                      schedule.gapWindows[0].endMonth
+                    )
+                  }
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap ${
+                    startMonth === schedule.gapWindows[0].startMonth &&
+                    endMonth === schedule.gapWindows[0].endMonth
+                      ? 'bg-amber-600 text-white border-amber-600'
+                      : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>틈새 공백기 바로보기 ({schedule.gapWindows[0].label})</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <label htmlFor="origin-start-month" className="text-slate-500">
+                시작월
+              </label>
+              <select
+                id="origin-start-month"
+                value={startMonth}
+                onChange={(e) => setStartMonth(Number(e.target.value))}
+                className="h-8 px-2 text-xs font-num bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              >
+                {Array.from({ length: 12 }, (_, idx) => idx + 1).map((m) => (
+                  <option key={m} value={m}>
+                    {m}월
+                  </option>
+                ))}
+              </select>
+              <span className="text-slate-400">~</span>
+              <label htmlFor="origin-end-month" className="text-slate-500">
+                종료월
+              </label>
+              <select
+                id="origin-end-month"
+                value={endMonth}
+                onChange={(e) => setEndMonth(Number(e.target.value))}
+                className="h-8 px-2 text-xs font-num bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              >
+                {Array.from({ length: 12 }, (_, idx) => idx + 1).map((m) => (
+                  <option key={m} value={m}>
+                    {m}월
+                  </option>
+                ))}
+              </select>
+
+              {usingUploaded && (
+                <>
+                  <span className="text-slate-300">|</span>
+                  <label htmlFor="origin-start-date" className="sr-only">
+                    엑셀 시작일자
+                  </label>
+                  <input
+                    id="origin-start-date"
+                    type="date"
+                    value={startDate}
+                    min={agg.filterOptions.minDate || undefined}
+                    max={agg.filterOptions.maxDate || undefined}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    title="업로드 엑셀 시작일자"
+                    className="h-8 px-2 text-xs font-num bg-white border border-slate-300 rounded-md text-slate-900"
+                  />
+                  <span className="text-slate-400">~</span>
+                  <label htmlFor="origin-end-date" className="sr-only">
+                    엑셀 종료일자
+                  </label>
+                  <input
+                    id="origin-end-date"
+                    type="date"
+                    value={endDate}
+                    min={agg.filterOptions.minDate || undefined}
+                    max={agg.filterOptions.maxDate || undefined}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    title="업로드 엑셀 종료일자"
+                    className="h-8 px-2 text-xs font-num bg-white border border-slate-300 rounded-md text-slate-900"
+                  />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Clickable 1~12월 Nationwide Supply Strip */}
+          <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
+            {schedule.monthlyNationwide.map((pt) => {
+              const isSelected = selectedMonthsSet.has(pt.month);
+              const isGap = schedule.gapMonths.includes(pt.month);
+              const barPct =
+                pt.sharePct > 0 ? Math.max(12, Math.round((pt.sharePct / maxMonthlyShare) * 100)) : 4;
+              return (
+                <button
+                  key={pt.month}
+                  type="button"
+                  onClick={() => handleSelectMonthRange(pt.month, pt.month)}
+                  title={`${pt.month}월 · 전국 비중 ${pt.sharePct}% · 출하 시·도 ${pt.activeProvinceCount}개${isGap ? ' (타지역 공백·단경기)' : ''}`}
+                  className={`flex flex-col items-center justify-between px-1.5 py-1.5 rounded-md border text-center transition-colors ${
+                    isSelected
+                      ? isGap
+                        ? 'bg-amber-50 border-amber-400 text-amber-900'
+                        : 'bg-emerald-50 border-emerald-500 text-emerald-950'
+                      : 'bg-slate-50/70 border-slate-200 text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="w-full h-5 flex items-end justify-center">
+                    <span
+                      className={`w-2.5 rounded-t-xs transition-all ${
+                        pt.totalKg <= 0
+                          ? 'bg-slate-200'
+                          : isGap
+                            ? 'bg-amber-500'
+                            : isSelected
+                              ? 'bg-emerald-600'
+                              : 'bg-slate-300'
+                      }`}
+                      style={{ height: `${barPct}%` }}
+                    />
+                  </div>
+                  <span className="text-[11px] font-num font-semibold mt-1 leading-none">
+                    {pt.month}월
+                  </span>
+                  <span className="text-[10px] font-num leading-tight mt-0.5 text-slate-500">
+                    {isGap ? '공백' : `${pt.activeProvinceCount}도`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Map Metric Switcher & Reset */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
           <div className="flex flex-wrap items-center gap-2">
@@ -458,7 +710,8 @@ export function OriginMapView({
                 대한민국 시·도별 출하 분포 지도
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                {selectedItem === '전체' ? '전체 품목 기준' : `${selectedItem} 기준`} · 지역 클릭 시 시·군·구 상세 조회
+                {selectedItem === '전체' ? '전체 품목' : selectedItem} ·{' '}
+                <strong className="text-slate-700 font-num">{periodLabel}</strong> 기준 · 지역 클릭 시 시·군·구 상세 조회
               </p>
             </div>
             {selectedProvince && (
@@ -743,6 +996,17 @@ export function OriginMapView({
           )}
         </div>
       </div>
+
+      {/* Regional 1~12월 Shipment Timing Matrix & Off-Season Gap Opportunities */}
+      <RegionalTimingPanel
+        schedule={schedule}
+        selectedItem={selectedItem}
+        selectedMonthsSet={selectedMonthsSet}
+        selectedProvinceId={selectedProvinceId}
+        usingUploaded={usingUploaded}
+        onSelectMonthRange={handleSelectMonthRange}
+        onSelectProvince={setSelectedProvinceId}
+      />
 
       {/* Detailed Auction Ledger Table */}
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">

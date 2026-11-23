@@ -435,6 +435,22 @@ async function startServer() {
     }
   });
 
+  app.get('/api/garak/history-10yr', (_req, res) => {
+    try {
+      const jsonPath = path.resolve(__dirname, 'public', 'data', 'garak-10yr-catalog.json');
+      if (!fs.existsSync(jsonPath)) {
+        res.status(404).json({ error: '10년치 크롤링 데이터 파일이 아직 생성되지 않았습니다.' });
+        return;
+      }
+      const raw = fs.readFileSync(jsonPath, 'utf8');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.send(raw);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '10년치 데이터 로드 실패';
+      res.status(500).json({ error: message });
+    }
+  });
+
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {

@@ -71,7 +71,7 @@ function isStaticGitHubPages(): boolean {
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [appVersion, setAppVersion] = useState('v0.4.2');
+  const [appVersion, setAppVersion] = useState('v0.5.0');
 
   // Live Garak Market Catalog State (defaults to 12-month combined all_year so seasonal & summary-only items like 고수 are always included)
   const [catalogDate, setCatalogDate] = useState<string>(getTodayIsoKst);

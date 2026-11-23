@@ -22,7 +22,14 @@ import {
   buildUnifiedCropUniverse,
   isCultivableDomesticItem,
 } from './cropSynthesizer';
-import { aggregateAuctionByRegion, parseOriginToRegion } from './koreaOrigin';
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  aggregateAuctionByRegion,
+  buildRegionalShipmentSchedule,
+  getMonthsInRange,
+  parseOriginToRegion,
+} from './koreaOrigin';
 import { NATIONWIDE_ORIGIN_BASELINE_RECORDS } from '../data/originAuctionBaseline';
 import { MULTI_PERIOD_SAMPLE_AUCTION_RECORDS } from '../data/garakMultiYearTrends';
 import {
@@ -30,6 +37,12 @@ import {
   classifyCobwebSignal,
   evaluateCropSupplyRiskMatrix,
 } from './supplyRisk';
+import {
+  exportGarak10YrToCsv,
+  filterGarak10YrItems,
+  formatMonthRangesKo,
+} from './garak10yr';
+import type { Garak10YrCatalogPayload } from '../types/garak';
 
 test('parseGarakUnit parses explicit kg, gram, and decimal units accurately', () => {
   const u1 = parseGarakUnit('10kg');
@@ -490,4 +503,112 @@ test('buildUploadedMultiPeriodComparison & aggregateAuctionByRegion compute real
   assert.ok(gyeongnam.yoyVolumeChangePct !== null && gyeongnam.yoyVolumeChangePct > 20);
   assert.ok(regionalYoY.totals.overallYoYPct !== null);
 });
+
+test('getMonthsInRange supports normal, single-month, and winter wrap-around ranges', () => {
+  assert.deepEqual(getMonthsInRange(3, 5), [3, 4, 5]);
+  assert.deepEqual(getMonthsInRange(7, 7), [7]);
+  assert.deepEqual(getMonthsInRange(11, 2), [11, 12, 1, 2]);
+  assert.deepEqual(getMonthsInRange(1, 12).length, 12);
+});
+
+test('aggregateAuctionByRegion filters dynamically by month range (summer vs winter relay) and exact uploaded dates', () => {
+  const summerCabbage = aggregateAuctionByRegion(NATIONWIDE_ORIGIN_BASELINE_RECORDS, {
+    item: '배추',
+    variety: '전체',
+    grade: '전체',
+    unitRaw: '전체',
+    search: '',
+    startMonth: 7,
+    endMonth: 8,
+  });
+  assert.ok((summerCabbage.provinceMap.get('gangwon')?.totalKg ?? 0) > 0, 'Gangwon highland cabbage must ship in Jul~Aug');
+  assert.equal(summerCabbage.provinceMap.get('jeonnam')?.totalKg ?? 0, 0, 'Jeonnam winter cabbage must be off-season in Jul~Aug');
+
+  const winterCabbage = aggregateAuctionByRegion(NATIONWIDE_ORIGIN_BASELINE_RECORDS, {
+    item: '배추',
+    variety: '전체',
+    grade: '전체',
+    unitRaw: '전체',
+    search: '',
+    startMonth: 12,
+    endMonth: 2,
+  });
+  assert.ok((winterCabbage.provinceMap.get('jeonnam')?.totalKg ?? 0) > 0, 'Jeonnam winter cabbage must ship in Dec~Feb');
+  assert.equal(winterCabbage.provinceMap.get('gangwon')?.totalKg ?? 0, 0, 'Gangwon highland cabbage must be off-season in Dec~Feb');
+
+  // Exact calendar date filter on multi-period uploaded records
+  const only2026 = aggregateAuctionByRegion(MULTI_PERIOD_SAMPLE_AUCTION_RECORDS, {
+    item: '전체',
+    variety: '전체',
+    grade: '전체',
+    unitRaw: '전체',
+    search: '',
+    startDate: '2026-01-01',
+    endDate: '2026-12-31',
+  });
+  assert.ok(only2026.filteredRecords.length > 0);
+  assert.ok(only2026.filteredRecords.every((r) => r.date.startsWith('2026')));
+});
+
+test('buildRegionalShipmentSchedule detects regional relay differences and off-season gap windows', () => {
+  const cabbageSchedule = buildRegionalShipmentSchedule(NATIONWIDE_ORIGIN_BASELINE_RECORDS, {
+    item: '배추',
+    variety: '전체',
+    grade: '전체',
+    unitRaw: '전체',
+    search: '',
+  });
+  assert.equal(cabbageSchedule.monthlyNationwide.length, 12);
+  assert.equal(cabbageSchedule.hasMultiMonthData, true);
+  assert.ok(cabbageSchedule.provinceRows.length >= 2);
+  assert.ok(
+    cabbageSchedule.timingDiffSummary.includes('출하 시차'),
+    `Expected regional relay timing difference in summary, got: ${cabbageSchedule.timingDiffSummary}`
+  );
+
+  const strawberrySchedule = buildRegionalShipmentSchedule(NATIONWIDE_ORIGIN_BASELINE_RECORDS, {
+    item: '딸기',
+    variety: '전체',
+    grade: '전체',
+    unitRaw: '전체',
+    search: '',
+  });
+  assert.ok(strawberrySchedule.gapWindows.length > 0, 'Strawberry must expose summer off-season gap window');
+  assert.ok(
+    strawberrySchedule.gapMonths.some((m) => m >= 7 && m <= 9),
+    `Expected strawberry gap months in Jul~Sep, got ${strawberrySchedule.gapMonths.join(',')}`
+  );
+  assert.ok(
+    strawberrySchedule.provinceRows.some((p) => p.provinceId === 'gangwon'),
+    'Summer strawberry relay origin (Gangwon) should appear in schedule'
+  );
+});
+
+test('10-year crawled Garak catalog dataset (public/data/garak-10yr-catalog.json) & filter/export helpers are valid', () => {
+  const dataPath = path.resolve(process.cwd(), 'public', 'data', 'garak-10yr-catalog.json');
+  assert.ok(fs.existsSync(dataPath), 'public/data/garak-10yr-catalog.json must exist');
+  const payload = JSON.parse(fs.readFileSync(dataPath, 'utf-8')) as Garak10YrCatalogPayload;
+
+  assert.equal(payload.totalSampledMonths, 119);
+  assert.ok(payload.totalUniqueItems >= 900, `Expected >= 900 10-year items, got ${payload.totalUniqueItems}`);
+  assert.equal(payload.yearlySummary.length, 10);
+
+  const dallae = payload.items.find((x) => x.itemName === '달래');
+  assert.ok(dallae, '달래 must exist in 10-year Garak catalog');
+  assert.ok(dallae.gapMonths.includes(6) && dallae.gapMonths.includes(7), '달래 must record Jun~Jul gap months');
+  assert.equal(formatMonthRangesKo([6, 7]), '6~7월');
+  assert.equal(formatMonthRangesKo([1, 2, 11, 12]), '1~2월, 11~12월');
+
+  const gapFiltered = filterGarak10YrItems(payload.items, {
+    search: '달래',
+    category: '전체',
+    filterMode: 'has_gap',
+  });
+  assert.ok(gapFiltered.some((x) => x.itemName === '달래'));
+
+  const csv = exportGarak10YrToCsv(payload, payload.items.slice(0, 5));
+  assert.ok(csv.startsWith('\uFEFF품목명,부류,최초출현연도'));
+  assert.ok(csv.split('\n').length >= 6);
+});
+
 

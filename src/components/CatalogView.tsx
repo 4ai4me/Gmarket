@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Calculator, RefreshCw, Search } from 'lucide-react';
+import { Calculator, History, RefreshCw, Search } from 'lucide-react';
 import type { CropProfile, GarakLiveItem, GarakLiveResponse } from '../types/garak';
 import { isCultivableDomesticItem } from '../utils/cropSynthesizer';
+import { TenYearCatalogPanel } from './TenYearCatalogPanel';
 
 interface CatalogViewProps {
   liveCatalog: GarakLiveResponse | null;
@@ -30,6 +31,7 @@ export function CatalogView({
   onRefresh,
   onInspectCropRoi,
 }: CatalogViewProps) {
+  const [viewScope, setViewScope] = useState<'live' | 'history_10yr'>('live');
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('전체');
   const [unitFilter, setUnitFilter] = useState<'all' | 'cultivable' | 'multi' | 'gram_or_other'>('all');
@@ -91,75 +93,119 @@ export function CatalogView({
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">
-            가락시장 전체 품목 · 거래단위 실시간 목록
+            {viewScope === 'history_10yr'
+              ? '가락시장 최근 10년(2017~2026) 전 품목 크롤링 이력'
+              : '가락시장 전체 품목 · 거래단위 실시간 목록'}
           </h2>
           <p className="text-sm text-slate-600 mt-1">
-            {queryMode === 'all_year'
-              ? `최근 12개월 경매결과(상위품목+포장단위)와 품목별 가격(고수·허브 등 세부품종)을 통합 조회합니다. 국내 재배가능 농산물(${cultivableCount}종)은 모두 1년 수지타산과 연동됩니다.`
-              : `지정 일자 가락시장 등록 품목을 조회하며, 국내 재배가능 농산물(${cultivableCount}종)은 모두 1년 수지타산 분석과 즉시 교차 연동됩니다.`}
+            {viewScope === 'history_10yr'
+              ? '가락시장 공개 경매 시스템(selectAutoCompleteAjax.do)에서 2017.01~2026.11 119개월 전수 수집한 973개 품목의 10년 출현빈도·공백월·확대/축소 추세를 분석합니다.'
+              : queryMode === 'all_year'
+                ? `최근 12개월 경매결과(상위품목+포장단위)와 품목별 가격(고수·허브 등 세부품종)을 통합 조회합니다. 국내 재배가능 농산물(${cultivableCount}종)은 모두 1년 수지타산과 연동됩니다.`
+                : `지정 일자 가락시장 등록 품목을 조회하며, 국내 재배가능 농산물(${cultivableCount}종)은 모두 1년 수지타산 분석과 즉시 교차 연동됩니다.`}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <label className="sr-only" htmlFor="garak-catalog-date">
-            조회 기준 날짜
-          </label>
-          <input
-            id="garak-catalog-date"
-            type="date"
-            value={queryDate}
-            onChange={(e) => onChangeDate(e.target.value)}
-            title={queryMode === 'all_year' ? '기준일로부터 최근 12개월 통합 조회' : '지정 일자 단건 조회'}
-            className="h-9 px-3 text-sm font-num bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-          />
-
+          {/* Top Scope Toggle: Live / 12-Month vs 10-Year Crawl */}
           <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
             <button
               type="button"
-              onClick={() => onChangeMode('all_year')}
+              onClick={() => setViewScope('live')}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                queryMode === 'all_year'
+                viewScope === 'live'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              실시간 · 12개월
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewScope('history_10yr')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                viewScope === 'history_10yr'
                   ? 'bg-emerald-700 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              연간 통합 (전 품목)
-            </button>
-            <button
-              type="button"
-              onClick={() => onChangeMode('auction')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                queryMode === 'auction'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              일간 경매 (단위)
-            </button>
-            <button
-              type="button"
-              onClick={() => onChangeMode('summary')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                queryMode === 'summary'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              일간 품종 (청과)
+              <History className="w-3.5 h-3.5" />
+              <span>10년 이력 (2017~2026)</span>
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>실시간 조회</span>
-          </button>
+          {viewScope === 'live' && (
+            <>
+              <label className="sr-only" htmlFor="garak-catalog-date">
+                조회 기준 날짜
+              </label>
+              <input
+                id="garak-catalog-date"
+                type="date"
+                value={queryDate}
+                onChange={(e) => onChangeDate(e.target.value)}
+                title={queryMode === 'all_year' ? '기준일로부터 최근 12개월 통합 조회' : '지정 일자 단건 조회'}
+                className="h-9 px-3 text-sm font-num bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+
+              <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => onChangeMode('all_year')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                    queryMode === 'all_year'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  연간 통합 (전 품목)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeMode('auction')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                    queryMode === 'auction'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  일간 경매 (단위)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeMode('summary')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                    queryMode === 'summary'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  일간 품종 (청과)
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>실시간 조회</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
+
+      {viewScope === 'history_10yr' ? (
+        <TenYearCatalogPanel
+          crops={crops}
+          liveItemToCropId={liveItemToCropId}
+          onInspectCropRoi={onInspectCropRoi}
+        />
+      ) : (
+        <>
 
       {/* Error Banner */}
       {error && (
@@ -395,6 +441,8 @@ export function CatalogView({
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

@@ -180,3 +180,18 @@
 - 확인하지 못한 것 / 사용자 확인 필요: `v0.4.2`를 `4ai4me/Gmarket` `main`에 푸시 후 Actions 초록색 통과 확인 및 `Settings → Pages → Source`를 **`GitHub Actions`**로 전환(현재 `Deploy from a branch` 상태)
 - 남은 이슈: 없음
 
+## [v0.5.0] 2026-11-20 — 가락시장 10년치(2017~2026) 전 품목 크롤링 및 출하지 지도 기간 설정 · 지역별 출하 시점/공백기 패턴 분석
+
+### 시작 전
+- Tier: 2 (신규 10년 크롤러·정적/API 데이터셋 + `전체 품목·단위` 10년 이력 UI + `출하지 현황 지도` 기간 설정 및 지역별 1~12월 출하 시점/공백기 분석 패널)
+- 요청 내용:
+  1. 출하지 현황 지도에서 기간 설정 기능 추가 및 각 지역별 출하 시점 차이·타지역 미출하 공백기(틈새 수확) 패턴 파악 기능 구현
+  2. 가락시장 최근 10년치 모든 품목에 대한 공개 데이터 크롤링 및 앱 통합
+- 영향 범위 판단: 신규 `scripts/crawl-garak-10yr.ts`, `public/data/garak-10yr-catalog.json`, `src/utils/garak10yr.ts`, `src/components/TenYearCatalogPanel.tsx`, `src/components/RegionalTimingPanel.tsx`, 수정 `server.ts`, `src/types/garak.ts`, `src/data/originAuctionBaseline.ts`, `src/utils/koreaOrigin.ts`, `src/components/CatalogView.tsx`, `src/components/OriginMapView.tsx`, `src/utils/analytics.test.ts`, `package.json`, `VERSION`, `src/App.tsx`, `README.md`, `log.md`.
+- 회귀 위험 검토: 기존 6개 탭, 12개월 통합 실시간/스냅샷 품목 조회, 17개 시·도 연간 지도 집계, 5개년 수급 리스크, 엑셀 업로드 및 1년 수지타산 계산을 유지하면서 월동 랩어라운드(`12~2월`)와 정적 GitHub Pages 상대 경로(`./data/garak-10yr-catalog.json`)가 깨지지 않아야 함.
+- 검증 계획:
+  1. `npx --yes tsx --test src/utils/analytics.test.ts` (기존 17건 + 신규 4건 = 21건)
+  2. `compile_applet` + `lint_applet` 동시 검증
+  3. Playwright 실브라우저 검증(`1440×900`): `전체 품목·단위 → 10년 이력 (2017~2026)`(973종/119개월/달래 공백월 필터) 및 `출하지 현황 지도`(배추 여름↔겨울 시차 전환, 딸기 틈새 공백기 바로보기, 지역별 1~12월 출하 히트맵)
+
+
